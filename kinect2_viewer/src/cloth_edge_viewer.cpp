@@ -12,7 +12,7 @@
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
- * limitations under the License.
+ * limitations under the License
  */
 
 #include <stdlib.h>
@@ -32,6 +32,11 @@
 #include <pcl/visualization/cloud_viewer.h>
 
 #include <opencv2/opencv.hpp>
+#include <opencv2/core/core.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+#include <opencv/cv.h>
+
 
 #include <ros/ros.h>
 #include <ros/spinner.h>
@@ -50,8 +55,61 @@
 
 #include <kinect2_bridge/kinect2_definitions.h>
 
-#include "TcpLib.hpp"
+cv::Rect box;
+bool drawing_box = false;
 
+void draw_box(cv::Mat* img, cv::Rect rect){
+    cv::rectangle(*img, cv::Point2d(box.x, box.y), cv::Point2d(box.x + box.width, box.y + box.height),
+        cv::Scalar(0xff, 0x00, 0x00));
+}
+
+void PrintDepth(unsigned int depth)//Mat型の画像のビット深度を出す
+{
+  std::string strDepth = 
+    (
+      depth == CV_8U ? "CV_8U" :
+      depth == CV_8S ? "CV_8S" :
+      depth == CV_16U ? "CV_16U" :
+      depth == CV_16S ? "CV_16S" :
+      depth == CV_32S ? "CV_32S" :
+      depth == CV_32F ? "CV_32F" :
+      depth == CV_64F ? "CV_64F" :
+      "Other"
+    );
+  std::cout << "depth: " << strDepth << std::endl;
+}
+
+// コールバック関数
+void my_mouse_callback(int event, int x, int y, int flags, void* param){
+    cv::Mat* image = static_cast<cv::Mat*>(param);
+
+    switch (event){
+    case cv::EVENT_MOUSEMOVE:
+        if (drawing_box){
+            box.width = x - box.x;
+            box.height = y - box.y;
+        }
+        break;
+
+    case cv::EVENT_LBUTTONDOWN:
+        drawing_box = true;
+        box = cv::Rect(x, y, 0, 0);
+        break;
+
+    case cv::EVENT_LBUTTONUP:
+        drawing_box = false;
+        if (box.width < 0){
+            box.x += box.width;
+            box.width *= -1;
+        }
+        if (box.height < 0){
+            box.y += box.height;
+            box.height *= -1;
+        }
+        draw_box(image, box);
+        break;
+    }
+}
 class Receiver
 {
 public:
@@ -248,19 +306,34 @@ private:
     const int lineText = 1;
     const int font = cv::FONT_HERSHEY_SIMPLEX;
 
-    cv::namedWindow("Image Viewer");
+    std::string name = "Image Viewer";
+    box = cv::Rect(-1, -1, 0, 0);
+    cv::Mat temp = depthDisp.clone();
+
+    cv::namedWindow(name, CV_WINDOW_AUTOSIZE);
     oss << "starting...";
+
+    cv::setMouseCallback(name, my_mouse_callback, (void *)&depthDisp);
 
     start = std::chrono::high_resolution_clock::now();
     for(; running && ros::ok();)
     {
+
       if(updateImage)
       {
         lock.lock();
         color = this->color;
         depth = this->depth;
+
+	//ファイルから読み込み
+	//color = cv::imread("~/catkin_ws/color01.png", 0);
+	//depth = cv::imread("~/catkin_ws/depth01.png", 0);
+
         updateImage = false;
         lock.unlock();
+
+	//exit(0);
+
 
         ++frameCount;
         now = std::chrono::high_resolution_clock::now();
@@ -274,12 +347,161 @@ private:
           frameCount = 0;
         }
 
-        dispDepth(depth, depthDisp, 12000.0f);
-        combine(color, depthDisp, combined);
-        //combined = color;
+	cv::Mat out_gaussian_img1, out_bilateral_img1, out_bilateral_img2, out_laplacian_img1,
+	  out_laplacian_img2, out_laplacian_img3, out_median_img1;
+	cv::Mat depth_8, depth_32, depthDisp_gaussian, depthDisp_bilateral, depthDisp_bilateral2, depthDisp_median_bilateral, depthDisp_median, depthDisp_median_bilateral_32;
 
+	depth.convertTo(depth_8, CV_8U, 1.0/255);//16bitから8bitに落とすので中の値を8bit分スケール落とす
+	depth.convertTo(depth_32, CV_32F, 1.0/65535);//16bitの値をそのまま小数におさめただけ
+
+	cv::Mat out_median_32, out_median_bilateral_32, out_2times, out_3times, out_4times, out_2, out_3, out_4;
+
+	//cv::imshow("flesh depth", depth);
+	//cv::imshow("flesh depth8", depth_8);
+
+
+	//ガウシアンを用いた平滑化
+	//入力画像，出力画像，カーネルサイズ，標準偏差x, y
+	cv::GaussianBlur(depth, out_gaussian_img1, cv::Size(3, 3), 10, 10);
+	//cv::GaussianBlur(depth, out_gaussian_img1, cv::Size(15, 15), 50, 50);
+
+	//メディアンを用いた平滑化
+	cv::medianBlur(depth_8, out_median_img1, 3);
+	cv::medianBlur(depth_32, out_median_32, 3);
+
+	//ガウシアン
+	cv::GaussianBlur(out_median_32, out_3times, cv::Size(7,7), 100, 100);
+
+	//バイラテラルを用いた平滑化
+	cv::bilateralFilter(depth_8, out_bilateral_img1, 7, 5, 5);
+	cv::bilateralFilter(depth_32, out_bilateral_img2, 7, 5, 5);
+	cv::bilateralFilter(out_median_32, out_median_bilateral_32, 3, 3, 5);
+	//cv::bilateralFilter(out_median_bilateral_32, out_2times, 7, 500, 15);
+	//cv::bilateralFilter(out_2times, out_3times, 7, 500, 15);
+	//cv::bilateralFilter(out_3times, out_4times, 7, 500, 15);
+	cv::Mat out_median_bilateral;
+	cv::Mat depth_8_median;
+	out_median_img1.convertTo(depth_8_median, CV_8U);
+	cv::bilateralFilter(depth_8_median, out_median_bilateral, 3, 3, 5);//3, 3, 5でとりあえず出る
+	//cv::bilateralFilter(out_median_img1, out_median_bilateral, 7, 5, 5);
+	//cvSmooth(depth_8, out_bilateral_img1, CV_BILATERAL, 11, 11, 50, 100);//Matに非対応
+
+	//ガウシアン
+	cv::Mat out_median_bilateral_gaussian_32;
+	cv::GaussianBlur(out_median_bilateral_32, out_median_bilateral_gaussian_32, cv::Size(5, 5), 0, 0);
+
+
+	//ラプラシアンを用いたエッジ抽出
+	cv::Laplacian(out_gaussian_img1, out_laplacian_img1, CV_32F, 3);
+	cv::Laplacian(out_bilateral_img1, out_laplacian_img2, CV_32F, 3);
+	cv::Laplacian(out_median_img1, out_laplacian_img3, CV_32F, 3);
+	cv::Mat out_median_bilateral_laplacian, out_median_bilateral_laplacian_32;
+	cv::Laplacian(out_median_bilateral, out_median_bilateral_laplacian, CV_32F, 3);
+
+	out_median_bilateral_32.convertTo(out_median_bilateral_32, CV_16U, 65535);//
+	out_median_bilateral_gaussian_32.convertTo(out_median_bilateral_gaussian_32, CV_16S, 65535);
+
+
+	//out_2times.convertTo(out_2times, CV_16U, 65535);
+	//out_3times.convertTo(out_3times, CV_16U, 65535);
+	//out_4times.convertTo(out_4times, CV_16U, 65535);
+
+	cv::Mat out_median_bilateral_gaussian_laplacian_32;
+
+	cv::Laplacian(out_median_bilateral_32, out_median_bilateral_laplacian_32, CV_32F, 3);
+	cv::Laplacian(out_median_bilateral_gaussian_32, out_median_bilateral_gaussian_laplacian_32, CV_32F, 1);
+	
+	//Cannyエッジ
+	cv::Mat out_median_bilateral_gaussian_canny_32, out_median_bilateral_gaussian_32_8;
+	out_median_bilateral_gaussian_32.convertTo(out_median_bilateral_gaussian_32_8, CV_8U, 65535/255);
+	cv::Canny(out_median_bilateral_gaussian_32_8, out_median_bilateral_gaussian_canny_32, 100, 200);
+
+	unsigned int out_MB = out_median_bilateral.depth();
+	PrintDepth(out_MB);
+	unsigned int out_MBL = out_median_bilateral_laplacian.depth();
+	PrintDepth(out_MBL);
+	unsigned int aaa = out_2times.depth();
+	PrintDepth(aaa);
+	unsigned int bbb = out_2.depth();
+	PrintDepth(bbb);
+	unsigned int ccc = out_3times.depth();
+	PrintDepth(ccc);
+	unsigned int ddd = out_3.depth();
+	PrintDepth(ddd);
+	//cv::Laplacian(out_3times, out_3, CV_32F, 3);
+	//cv::Laplacian(out_4times, out_4, CV_32F, 3);
+	//cv::Laplacian(depth, laplacian_img, CV_32F, 3);
+    
+	//素の深度画像は見づらいので見やすく変換
+	dispDepth(depth, depthDisp, 1200.0f);
+	//out_bilateral_img1.convertTo(out_bilateral_img1, CV_16U);
+	dispDepth(out_bilateral_img1, depthDisp_bilateral, 100.0f);
+	//out_median_bilateral.convertTo(out_median_bilateral, CV_16U, 255);//8から16なので8bit分掛ける
+	dispDepth(out_median_bilateral, depthDisp_median_bilateral, 100.0f);
+	dispDepth(out_gaussian_img1, depthDisp_gaussian, 1200.0f);
+
+	out_bilateral_img2.convertTo(out_bilateral_img2, CV_16U, 65535);
+	dispDepth(out_bilateral_img2, depthDisp_bilateral2, 1200.0f);
+
+	out_median_img1.convertTo(out_median_img1, CV_16U, 8);
+	dispDepth(out_median_img1, depthDisp_median, 100.0f);
+
+	//out_median_bilateral_32.convertTo(out_median_bilateral_32, CV_16U, 65535);//390行目
+	dispDepth(out_median_bilateral_32, depthDisp_median_bilateral_32, 800.0f);
+
+	//dispDepth(out_2times, out_2, 1200.0f);
+	//dispDepth(out_3times, out_3, 1200.0f);
+	//dispDepth(out_4times, out_4, 1200.0f);
+
+        combine(color, depthDisp, combined);
+
+	//ビット深度表示
+	unsigned int depthint = depth.depth();
+	unsigned int depthDispint = depthDisp.depth();
+	PrintDepth(depthint);
+	PrintDepth(depthDispint);
+
+        ///combined = color;
+
+	//cv::GaussianBlur(depthDisp, out_gaussian_img1, cv::Size(3, 3), 120, 120);
+
+
+	cout << depth.type() << " " << depth.depth() <<  endl;
+	depthDisp.copyTo(temp);
+	if(drawing_box){
+	  draw_box(&temp, box);
+	  cout << "square drawing" << endl;
+	}
+	cout << "drawing" << endl;
         cv::putText(combined, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
-        cv::imshow("Image Viewer", combined);
+
+	//cv::imshow("Origin depth", depthDisp);
+	//cv::imshow("flesh depth", depth);
+	//cv::imshow("flesh depth8", depth_8);
+        //cv::imshow("Image Viewer", color);
+	//cv::imshow("depth Viewer", depth);
+	//cv::imshow("gaussian depth", out_gaussian_img1);
+	//cv::imshow("gaussian depth", depthDisp_gaussian);
+	cv::imshow("median depth", depthDisp_median);
+	//cv::imshow("bilateral depth", depthDisp_bilateral2);
+	//cv::imshow("median bilateral 32", depthDisp_median_bilateral_32);
+	//cv::imshow("median bilateral", depthDisp_median_bilateral);
+	//cv::imshow("median bilateral origin", out_median_bilateral);
+	//cv::imshow("bilateral depth", depthDisp_bilateral);
+	//cv::imshow("LOG viewer", out_laplacian_img1);
+	//cv::imshow("bilateral viewer", out_laplacian_img2);
+	//cv::imshow("median viewer", out_laplacian_img3);
+	//cv::imshow("median bilateral laplacian", out_median_bilateral_laplacian);//まあまあ
+
+	//cv::imshow("edge", out_median_bilateral_laplacian_32);
+	//cv::imshow("median bilateral gaussian laplacian", out_median_bilateral_gaussian_laplacian_32);
+	//cv::imshow("median bilateral gaussian canny", out_median_bilateral_gaussian_canny_32);
+	//cv::imshow("edge2", out_2);
+	//cv::imshow("edge3", out_3);
+	//cv::imshow("edge4", out_4);
+
+	//cv::imwrite("color01.png", color);
+	//cv::imwrite("depth01.png", depth);
       }
 
       int key = cv::waitKey(1);
@@ -477,15 +699,15 @@ private:
     const std::string depthName = baseName + "_depth.png";
     const std::string depthColoredName = baseName + "_depth_colored.png";
 
-    OUT_INFO("saving cloud: " << cloudName);
+    std::cout << "saving cloud: " << cloudName << std::endl;
     writer.writeBinary(cloudName, *cloud);
-    OUT_INFO("saving color: " << colorName);
+    std::cout << "saving color: " << colorName << std::endl;
     cv::imwrite(colorName, color, params);
-    OUT_INFO("saving depth: " << depthName);
+    std::cout << "saving depth: " << depthName << std::endl;
     cv::imwrite(depthName, depth, params);
-    OUT_INFO("saving depth: " << depthColoredName);
+    std::cout << "saving depth: " << depthColoredName << std::endl;
     cv::imwrite(depthColoredName, depthColored, params);
-    OUT_INFO("saving complete!");
+    std::cout << "saving complete!" << std::endl;
     ++frame;
   }
 
@@ -515,27 +737,23 @@ private:
 
 void help(const std::string &path)
 {
-  std::cout << path << FG_BLUE " [options]" << std::endl
-            << FG_GREEN "  name" NO_COLOR ": " FG_YELLOW "'any string'" NO_COLOR " equals to the kinect2_bridge topic base name" << std::endl
-            << FG_GREEN "  mode" NO_COLOR ": " FG_YELLOW "'qhd'" NO_COLOR ", " FG_YELLOW "'hd'" NO_COLOR ", " FG_YELLOW "'sd'" NO_COLOR " or " FG_YELLOW "'ir'" << std::endl
-            << FG_GREEN "  visualization" NO_COLOR ": " FG_YELLOW "'image'" NO_COLOR ", " FG_YELLOW "'cloud'" NO_COLOR " or " FG_YELLOW "'both'" << std::endl
-            << FG_GREEN "  options" NO_COLOR ":" << std::endl
-            << FG_YELLOW "    'compressed'" NO_COLOR " use compressed instead of raw topics" << std::endl
-            << FG_YELLOW "    'approx'" NO_COLOR " use approximate time synchronization" << std::endl;
+  std::cout << path << " [options]" << std::endl
+            << "  name: 'any string' equals to the kinect2_bridge topic base name" << std::endl
+            << "  mode: 'qhd', 'hd', 'sd' or 'ir'" << std::endl
+            << "  visualization: 'image', 'cloud' or 'both'" << std::endl
+            << "  options:" << std::endl
+            << "    'compressed' use compressed instead of raw topics" << std::endl
+            << "    'approx' use approximate time synchronization" << std::endl;
 }
+
+
+
+
 
 int main(int argc, char **argv)
 {
-#if EXTENDED_OUTPUT
-  ROSCONSOLE_AUTOINIT;
-  if(!getenv("ROSCONSOLE_FORMAT"))
-  {
-    ros::console::g_formatter.tokens_.clear();
-    ros::console::g_formatter.init("[${severity}] ${message}");
-  }
-#endif
-
   ros::init(argc, argv, "kinect2_viewer", ros::init_options::AnonymousName);
+
 
   if(!ros::ok())
   {
@@ -608,12 +826,12 @@ int main(int argc, char **argv)
 
   topicColor = "/" + ns + topicColor;
   topicDepth = "/" + ns + topicDepth;
-  OUT_INFO("topic color: " FG_CYAN << topicColor << NO_COLOR);
-  OUT_INFO("topic depth: " FG_CYAN << topicDepth << NO_COLOR);
+  std::cout << "topic color: " << topicColor << std::endl;
+  std::cout << "topic depth: " << topicDepth << std::endl;
 
   Receiver receiver(topicColor, topicDepth, useExact, useCompressed);
 
-  OUT_INFO("starting receiver...");
+  std::cout << "starting receiver..." << std::endl;
   receiver.run(mode);
 
   ros::shutdown();

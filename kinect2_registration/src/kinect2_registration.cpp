@@ -16,7 +16,6 @@
  */
 
 #include <kinect2_registration/kinect2_registration.h>
-#include <kinect2_registration/kinect2_console.h>
 
 #ifdef DEPTH_REG_CPU
 #include "depth_registration_cpu.h"
@@ -25,6 +24,8 @@
 #ifdef DEPTH_REG_OPENCL
 #include "depth_registration_opencl.h"
 #endif
+
+#define OUT_NAME(FUNCTION) "[DepthRegistration::" FUNCTION "] "
 
 DepthRegistration::DepthRegistration()
 {
@@ -66,22 +67,22 @@ DepthRegistration *DepthRegistration::New(Method method)
   switch(method)
   {
   case DEFAULT:
-    OUT_ERROR("No default registration method available!");
+    std::cerr << OUT_NAME("New") "No default registration method available!" << std::endl;
     break;
   case CPU:
 #ifdef DEPTH_REG_CPU
-    OUT_INFO("Using CPU registration method!");
+    std::cout << OUT_NAME("New") "Using CPU registration method!" << std::endl;
     return new DepthRegistrationCPU();
 #else
-    OUT_ERROR("CPU registration method not available!");
+    std::cerr << OUT_NAME("New") "CPU registration method not available!" << std::endl;
     break;
 #endif
   case OPENCL:
 #ifdef DEPTH_REG_OPENCL
-    OUT_INFO("Using OpenCL registration method!");
+    std::cout << OUT_NAME("New") "Using OpenCL registration method!" << std::endl;
     return new DepthRegistrationOpenCL();
 #else
-    OUT_ERROR("OpenCL registration method not available!");
+    std::cerr << OUT_NAME("New") "OpenCL registration method not available!" << std::endl;
     break;
 #endif
   }

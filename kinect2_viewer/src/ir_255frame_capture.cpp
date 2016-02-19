@@ -13,6 +13,10 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+
+
+
+キネクトから読み込んだ深度画像の任意の枚数 NUMOFDEPTH の平均画像を作る
  */
 
 #include <stdlib.h>
@@ -32,6 +36,11 @@
 #include <pcl/visualization/cloud_viewer.h>
 
 #include <opencv2/opencv.hpp>
+#include <opencv2/core/core.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+#include <opencv/cv.h>
+
 
 #include <ros/ros.h>
 #include <ros/spinner.h>
@@ -50,8 +59,70 @@
 
 #include <kinect2_bridge/kinect2_definitions.h>
 
-#include "TcpLib.hpp"
+static const int NUMOFDEPTH = 255;
+static const int DEPTHROWS = 424;
+static const int DEPTHCOLS = 512;
 
+static const float DEPTHMAX = 730.0f;//深度画像を見やすくする
+static const float DEPTHMIN = 620.0f;
+
+static const int PICTURES = 10;
+
+cv::Rect box;
+bool drawing_box = false;
+
+void draw_box(cv::Mat* img, cv::Rect rect){
+    cv::rectangle(*img, cv::Point2d(box.x, box.y), cv::Point2d(box.x + box.width, box.y + box.height),
+        cv::Scalar(0xff, 0x00, 0x00));
+}
+
+void PrintDepth(unsigned int depth)//Mat型の画像のビット深度を出す
+{
+  std::string strDepth = 
+    (
+      depth == CV_8U ? "CV_8U" :
+      depth == CV_8S ? "CV_8S" :
+      depth == CV_16U ? "CV_16U" :
+      depth == CV_16S ? "CV_16S" :
+      depth == CV_32S ? "CV_32S" :
+      depth == CV_32F ? "CV_32F" :
+      depth == CV_64F ? "CV_64F" :
+      "Other"
+    );
+  std::cout << "depth: " << strDepth << std::endl;
+}
+
+// コールバック関数
+void my_mouse_callback(int event, int x, int y, int flags, void* param){
+    cv::Mat* image = static_cast<cv::Mat*>(param);
+
+    switch (event){
+    case cv::EVENT_MOUSEMOVE:
+        if (drawing_box){
+            box.width = x - box.x;
+            box.height = y - box.y;
+        }
+        break;
+
+    case cv::EVENT_LBUTTONDOWN:
+        drawing_box = true;
+        box = cv::Rect(x, y, 0, 0);
+        break;
+
+    case cv::EVENT_LBUTTONUP:
+        drawing_box = false;
+        if (box.width < 0){
+            box.x += box.width;
+            box.width *= -1;
+        }
+        if (box.height < 0){
+            box.y += box.height;
+            box.height *= -1;
+        }
+        draw_box(image, box);
+        break;
+    }
+}
 class Receiver
 {
 public:
@@ -59,7 +130,8 @@ public:
   {
     IMAGE = 0,
     CLOUD,
-    BOTH
+    BOTH,
+    AVERAGE
   };
 
 private:
@@ -101,7 +173,7 @@ private:
 public:
   Receiver(const std::string &topicColor, const std::string &topicDepth, const bool useExact, const bool useCompressed)
     : topicColor(topicColor), topicDepth(topicDepth), useExact(useExact), useCompressed(useCompressed),
-      updateImage(false), updateCloud(false), save(false), running(false), frame(0), queueSize(5),
+      updateImage(false), updateCloud(false), save(false), running(false), frame(0), queueSize(5),//////////////////////////////////////////
       nh("~"), spinner(0), it(nh), mode(CLOUD)
   {
     cameraMatrixColor = cv::Mat::zeros(3, 3, CV_64F);
@@ -131,14 +203,18 @@ private:
     this->mode = mode;
     running = true;
 
+    cout << "Receiver receiver  void start          is running" << endl;
+
     std::string topicCameraInfoColor = topicColor.substr(0, topicColor.rfind('/')) + "/camera_info";
     std::string topicCameraInfoDepth = topicDepth.substr(0, topicDepth.rfind('/')) + "/camera_info";
+
 
     image_transport::TransportHints hints(useCompressed ? "compressed" : "raw");
     subImageColor = new image_transport::SubscriberFilter(it, topicColor, queueSize, hints);
     subImageDepth = new image_transport::SubscriberFilter(it, topicDepth, queueSize, hints);
     subCameraInfoColor = new message_filters::Subscriber<sensor_msgs::CameraInfo>(nh, topicCameraInfoColor, queueSize);
     subCameraInfoDepth = new message_filters::Subscriber<sensor_msgs::CameraInfo>(nh, topicCameraInfoDepth, queueSize);
+
 
     if(useExact)
     {
@@ -154,8 +230,11 @@ private:
     spinner.start();
 
     std::chrono::milliseconds duration(1);
+
+int count = 0;
     while(!updateImage || !updateCloud)
     {
+count++;
       if(!ros::ok())
       {
         return;
@@ -169,6 +248,7 @@ private:
     cloud->points.resize(cloud->height * cloud->width);
     createLookup(this->color.cols, this->color.rows);
 
+
     switch(mode)
     {
     case CLOUD:
@@ -180,6 +260,9 @@ private:
     case BOTH:
       imageViewerThread = std::thread(&Receiver::imageViewer, this);
       cloudViewer();
+      break;
+    case AVERAGE:
+      imageAverage();
       break;
     }
   }
@@ -216,8 +299,10 @@ private:
 
     readCameraInfo(cameraInfoColor, cameraMatrixColor);
     readCameraInfo(cameraInfoDepth, cameraMatrixDepth);
+
     readImage(imageColor, color);
-    readImage(imageDepth, depth);
+    readImage(imageDepth, depth);///この時点でdepthはCV_16U
+
 
     // IR image input
     if(color.type() == CV_16U)
@@ -229,15 +314,162 @@ private:
 
     lock.lock();
     this->color = color;
-    this->depth = depth;
+    this->depth = depth;//////多分ここでグローバル変数のdepthに深度画像を格納してる
     updateImage = true;
     updateCloud = true;
     lock.unlock();
   }
 
+
+
+
+  void imageAverage()
+  {
+    cv::Mat color, depth, gray;
+    cv::Mat canny01, canny02, canny03, canny04, canny05;
+    //cv::Mat addCanny01, addCanny02, addCanny03, addCanny04, addCanny05;
+    cv::Mat addCanny01(DEPTHROWS, DEPTHCOLS, CV_8U, cv::Scalar(0));
+    cv::Mat addCanny02(DEPTHROWS, DEPTHCOLS, CV_8U, cv::Scalar(0));
+    cv::Mat addCanny03(DEPTHROWS, DEPTHCOLS, CV_8U, cv::Scalar(0));
+    cv::Mat addCanny04(DEPTHROWS, DEPTHCOLS, CV_8U, cv::Scalar(0));
+    cv::Mat addCanny05(DEPTHROWS, DEPTHCOLS, CV_8U, cv::Scalar(0));
+    //cv::Mat addDepthInt(DEPTHROWS, DEPTHCOLS, CV_16U, cv::Scalar(0));
+    std::chrono::time_point<std::chrono::high_resolution_clock> start, now;
+    double fps = 0;
+    size_t frameCount = 0, trueFrameCount = 0;
+    std::ostringstream oss;
+    const cv::Point pos(5, 15);
+
+
+
+    cv::namedWindow("Image Viewer");
+    oss << "starting...";
+
+    start = std::chrono::high_resolution_clock::now();
+    for(; running && ros::ok();)
+    {
+      if(updateImage)
+      {
+        lock.lock();
+        color = this->color;
+        depth = this->depth;
+        updateImage = false;
+        lock.unlock();
+
+	cout << "depth: " ;
+	unsigned int depthint = depth.depth();
+	PrintDepth(depthint);
+	cout << "color: " ;
+	unsigned int colorint = color.depth();
+	PrintDepth(colorint);
+
+        ++frameCount;
+	++trueFrameCount;
+cout << "frame Count:" << trueFrameCount << endl;
+        now = std::chrono::high_resolution_clock::now();
+        double elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count() / 1000.0;
+        if(elapsed >= 1.0)
+        {
+          fps = frameCount / elapsed;
+          oss.str("");
+          oss << "fps: " << fps << " ( " << elapsed / frameCount * 1000.0 << " ms)";
+          start = now;
+          frameCount = 0;
+        }
+
+	//ir画像のエッジを出す
+	gray = color;
+cout << "rows:" << gray.rows << "  cols:" << gray.cols << endl;
+/*
+	cv::Canny(gray, canny01, 180, 1);
+	cv::Canny(gray, canny02, 180, 5);
+	cv::Canny(gray, canny03, 180, 10);
+	cv::Canny(gray, canny04, 180, 15);
+	cv::Canny(gray, canny05, 180, 20);
+*/
+	cv::Canny(gray, canny01, 50, 5);
+	cv::Canny(gray, canny02, 50, 10);
+	cv::Canny(gray, canny03, 50, 15);
+	cv::Canny(gray, canny04, 50, 20);
+	cv::Canny(gray, canny05, 100, 20);
+
+	cv::imshow("color", color);
+	cv::imshow("gray", gray);
+/*
+	cv::imshow("canny01", canny01);
+	cv::imshow("canny02", canny02);
+	cv::imshow("canny03", canny03);
+	cv::imshow("canny04", canny04);
+	cv::imshow("canny05", canny05);
+*/
+
+/*
+	char str1[100];
+	sprintf(str1, "20151129depth/edgeA%2d.png", PATTERN);
+	cv::imwrite(str1, addDepth_Canny01);
+*/
+
+
+	if(trueFrameCount <= NUMOFDEPTH){//NUMOFDEPTHの数だけ格納していく
+	  //cv::medianBlur(depth, depth_median, 3);//足す前にメディアンかける
+	  //実際に足し合わせていく
+	  add2PicturesInt(addCanny01, canny01);
+	  add2PicturesInt(addCanny02, canny02);
+	  add2PicturesInt(addCanny03, canny03);
+	  add2PicturesInt(addCanny04, canny04);
+	  add2PicturesInt(addCanny05, canny05);
+	}
+
+	if(trueFrameCount == NUMOFDEPTH){
+	  thresholdFilter(addCanny01);
+	  thresholdFilter(addCanny02);
+	  thresholdFilter(addCanny03);
+	  thresholdFilter(addCanny04);
+	  thresholdFilter(addCanny05);
+	}
+	if(trueFrameCount >= NUMOFDEPTH){
+cout << "showing" << endl;
+	  //cv::medianBlur(addDepthInt, addDepthInt, 3);//メディアンかける
+	  cv::imshow("canny01", addCanny01);
+	  cv::imshow("canny02", addCanny02);
+	  cv::imshow("canny03", addCanny03);
+	  cv::imshow("canny04", addCanny04);
+	  cv::imshow("canny05", addCanny05);
+	}
+
+      }
+
+      int key = cv::waitKey(1);
+      switch(key & 0xFF)
+      {
+      case 27:
+      case 'q':
+        running = false;
+        break;
+      case ' ':
+      case 's':
+        if(mode == IMAGE)
+        {
+          createCloud(depth, color, cloud);
+        }
+        else
+        {
+          save = true;
+        }
+        break;
+      }
+    }
+    cv::destroyAllWindows();
+    cv::waitKey(100);
+  }
+
+
+
+
   void imageViewer()
   {
     cv::Mat color, depth, depthDisp, combined;
+    cv::Mat test01;
     std::chrono::time_point<std::chrono::high_resolution_clock> start, now;
     double fps = 0;
     size_t frameCount = 0;
@@ -276,7 +508,8 @@ private:
 
         dispDepth(depth, depthDisp, 12000.0f);
         combine(color, depthDisp, combined);
-        //combined = color;
+        //combined = color;//
+	test01 = color;
 
         cv::putText(combined, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
         cv::imshow("Image Viewer", combined);
@@ -307,9 +540,11 @@ private:
     cv::waitKey(100);
   }
 
+
   void cloudViewer()
   {
     cv::Mat color, depth;
+    cv::Mat depth_32, out_median_img1, out_median_bilateral_img1, out_median_bilateral_gaussian_img1;
     pcl::visualization::PCLVisualizer::Ptr visualizer(new pcl::visualization::PCLVisualizer("Cloud Viewer"));
     const std::string cloudName = "rendered";
 
@@ -340,6 +575,30 @@ private:
         depth = this->depth;
         updateCloud = false;
         lock.unlock();
+
+
+
+	depth.convertTo(depth_32, CV_32F, 1.0/65535);//16bitの値をそのまま小数におさめただけ
+
+	//メディアンを用いた平滑化
+	cv::medianBlur(depth_32, out_median_img1, 3);
+
+	//バイラテラルを用いた平滑化
+	cv::bilateralFilter(out_median_img1, out_median_bilateral_img1, 5, 50, 20);
+	
+	cv::Mat bilateral_loop;
+	cv::bilateralFilter(out_median_bilateral_img1, bilateral_loop, 5, 50, 20);
+	cv::bilateralFilter(bilateral_loop, out_median_bilateral_img1, 5, 50, 20);
+	
+
+	//ガウシアン
+	cv::GaussianBlur(out_median_bilateral_img1, out_median_bilateral_gaussian_img1, cv::Size(3, 3), 2, 2);
+
+	//depth_32.convertTo(depth, CV_16U, 65535);
+	out_median_img1.convertTo(depth, CV_16U, 65535);
+	//out_median_bilateral_img1.convertTo(depth, CV_16U, 65535);
+	//out_median_bilateral_gaussian_img1.convertTo(depth, CV_16U, 65535);
+
 
         createCloud(depth, color, cloud);
 
@@ -391,7 +650,7 @@ private:
     }
   }
 
-  void dispDepth(const cv::Mat &in, cv::Mat &out, const float maxValue)
+  void dispDepth(const cv::Mat &in, cv::Mat &out, const float maxValue, const float minValue = 500.0f)
   {
     cv::Mat tmp = cv::Mat(in.rows, in.cols, CV_8U);
     const uint32_t maxInt = 255;
@@ -404,12 +663,50 @@ private:
 
       for(int c = 0; c < in.cols; ++c, ++itI, ++itO)
       {
-        *itO = (uint8_t)std::min((*itI * maxInt / maxValue), 255.0f);
+	//最小値をいじるんじゃなくてスケールをいじる
+	if(*itI > minValue){
+        //*itO = (uint8_t)std::min((*itI * maxInt / maxValue), 255.0f);
+	*itO = (uint8_t)std::min(( (maxValue - (maxValue - *itI)*(maxValue/(maxValue-minValue))) * maxInt / maxValue), 255.0f);
+	}
+	else{
+	*itO = (uint8_t)0.0f;
+	}
       }
     }
-
+    
     cv::applyColorMap(tmp, out, cv::COLORMAP_JET);
   }
+
+
+  void add2PicturesInt(cv::Mat &in1, const cv::Mat &in2){//in1にin2を足す 深度は8U
+#pragma omp parallel for
+    for(int r = 0; r < in1.rows; r++){
+      uint8_t *it1In = in1.ptr<uint8_t>(r);
+      const uint8_t *it2In = in2.ptr<uint8_t>(r);
+      for(int c = 0; c < in1.cols; c++, it1In++, it2In++){
+	*it1In = *it1In + *it2In/255;
+	if(r == in1.rows/2 && c == in1.rows/2){
+          cout << "add2Pictures center pixel   add:" << *it1In << "  origin:" << *it2In << endl;
+	}
+      }
+    }
+  }
+
+  void thresholdFilter(cv::Mat &in1){//in1にin2を足す 深度は8U
+#pragma omp parallel for
+    for(int r = 0; r < in1.rows; r++){
+      uint8_t *it1In = in1.ptr<uint8_t>(r);
+      for(int c = 0; c < in1.cols; c++, it1In++){
+	if(*it1In >= 220){
+	  *it1In = (*it1In-220)*(255/(255-220));
+	}
+	else{
+	  *it1In = 0;
+	}
+      }
+    }
+  }
+
 
   void combine(const cv::Mat &inC, const cv::Mat &inD, cv::Mat &out)
   {
@@ -477,15 +774,15 @@ private:
     const std::string depthName = baseName + "_depth.png";
     const std::string depthColoredName = baseName + "_depth_colored.png";
 
-    OUT_INFO("saving cloud: " << cloudName);
+    std::cout << "saving cloud: " << cloudName << std::endl;
     writer.writeBinary(cloudName, *cloud);
-    OUT_INFO("saving color: " << colorName);
+    std::cout << "saving color: " << colorName << std::endl;
     cv::imwrite(colorName, color, params);
-    OUT_INFO("saving depth: " << depthName);
+    std::cout << "saving depth: " << depthName << std::endl;
     cv::imwrite(depthName, depth, params);
-    OUT_INFO("saving depth: " << depthColoredName);
+    std::cout << "saving depth: " << depthColoredName << std::endl;
     cv::imwrite(depthColoredName, depthColored, params);
-    OUT_INFO("saving complete!");
+    std::cout << "saving complete!" << std::endl;
     ++frame;
   }
 
@@ -515,27 +812,23 @@ private:
 
 void help(const std::string &path)
 {
-  std::cout << path << FG_BLUE " [options]" << std::endl
-            << FG_GREEN "  name" NO_COLOR ": " FG_YELLOW "'any string'" NO_COLOR " equals to the kinect2_bridge topic base name" << std::endl
-            << FG_GREEN "  mode" NO_COLOR ": " FG_YELLOW "'qhd'" NO_COLOR ", " FG_YELLOW "'hd'" NO_COLOR ", " FG_YELLOW "'sd'" NO_COLOR " or " FG_YELLOW "'ir'" << std::endl
-            << FG_GREEN "  visualization" NO_COLOR ": " FG_YELLOW "'image'" NO_COLOR ", " FG_YELLOW "'cloud'" NO_COLOR " or " FG_YELLOW "'both'" << std::endl
-            << FG_GREEN "  options" NO_COLOR ":" << std::endl
-            << FG_YELLOW "    'compressed'" NO_COLOR " use compressed instead of raw topics" << std::endl
-            << FG_YELLOW "    'approx'" NO_COLOR " use approximate time synchronization" << std::endl;
+  std::cout << path << " [options]" << std::endl
+            << "  name: 'any string' equals to the kinect2_bridge topic base name" << std::endl
+            << "  mode: 'qhd', 'hd', 'sd' or 'ir'" << std::endl
+            << "  visualization: 'image', 'cloud' or 'both'" << std::endl
+            << "  options:" << std::endl
+            << "    'compressed' use compressed instead of raw topics" << std::endl
+            << "    'approx' use approximate time synchronization" << std::endl;
 }
+
+
+
+
 
 int main(int argc, char **argv)
 {
-#if EXTENDED_OUTPUT
-  ROSCONSOLE_AUTOINIT;
-  if(!getenv("ROSCONSOLE_FORMAT"))
-  {
-    ros::console::g_formatter.tokens_.clear();
-    ros::console::g_formatter.init("[${severity}] ${message}");
-  }
-#endif
-
   ros::init(argc, argv, "kinect2_viewer", ros::init_options::AnonymousName);
+
 
   if(!ros::ok())
   {
@@ -600,6 +893,9 @@ int main(int argc, char **argv)
     {
       mode = Receiver::BOTH;
     }
+    else if(param == "average"){
+      mode = Receiver::AVERAGE;
+    }
     else
     {
       ns = param;
@@ -608,12 +904,12 @@ int main(int argc, char **argv)
 
   topicColor = "/" + ns + topicColor;
   topicDepth = "/" + ns + topicDepth;
-  OUT_INFO("topic color: " FG_CYAN << topicColor << NO_COLOR);
-  OUT_INFO("topic depth: " FG_CYAN << topicDepth << NO_COLOR);
+  std::cout << "topic color: " << topicColor << std::endl;
+  std::cout << "topic depth: " << topicDepth << std::endl;
 
   Receiver receiver(topicColor, topicDepth, useExact, useCompressed);
 
-  OUT_INFO("starting receiver...");
+  std::cout << "starting receiver..." << std::endl;
   receiver.run(mode);
 
   ros::shutdown();

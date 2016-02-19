@@ -17,6 +17,8 @@
 
 #include "depth_registration_cpu.h"
 
+#define OUT_NAME(FUNCTION) "[DepthRegistrationCPU::" FUNCTION "] "
+
 DepthRegistrationCPU::DepthRegistrationCPU()
   : DepthRegistration()
 {
@@ -171,12 +173,11 @@ void DepthRegistrationCPU::projectDepth(const cv::Mat &scaled, cv::Mat &register
   }
 }
 
-bool DepthRegistrationCPU::registerDepth(const cv::Mat &depth, cv::Mat &registered)
+void DepthRegistrationCPU::registerDepth(const cv::Mat &depth, cv::Mat &registered)
 {
   cv::Mat scaled;
   remapDepth(depth, scaled);
   projectDepth(scaled, registered);
-  return true;
 }
 
 void DepthRegistrationCPU::createLookup()

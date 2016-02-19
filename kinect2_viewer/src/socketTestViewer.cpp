@@ -52,6 +52,17 @@
 
 #include "TcpLib.hpp"
 
+#define IPADDRESS "163.221.44.226"
+#define PORTNUM 3794
+
+using namespace std;
+using namespace cv;
+
+TcpClient client;//ソケット通信のクライアント「client」を作成
+
+static const float DEPTHMAX = 750;//深度画像を見やすくする　間隔は450
+static const float DEPTHMIN = 690;//780, 720
+
 class Receiver
 {
 public:
@@ -238,6 +249,7 @@ private:
   void imageViewer()
   {
     cv::Mat color, depth, depthDisp, combined;
+    cv::Mat depth0, depth1, depth2, depth3, depth4, depth5, depth6, depth7, depth8, depth9, depthM;
     std::chrono::time_point<std::chrono::high_resolution_clock> start, now;
     double fps = 0;
     size_t frameCount = 0;
@@ -247,6 +259,12 @@ private:
     const double sizeText = 0.5;
     const int lineText = 1;
     const int font = cv::FONT_HERSHEY_SIMPLEX;
+    //float depthMax = 780.0f, depthMin = 620.0f;//20160121
+    float depthMax = 744.0f, depthMin = 620.0f;
+    bool firstMat = false;
+
+    //ソケット通信
+    int rightX, rightY, leftX, leftY;
 
     cv::namedWindow("Image Viewer");
     oss << "starting...";
@@ -262,6 +280,36 @@ private:
         updateImage = false;
         lock.unlock();
 
+	//メディアンを用いた平滑化
+	cv::medianBlur(depth, depthM, 3);
+	if(firstMat == false){
+	  cout << "in first ############" << endl;
+	  depth9 = depthM.clone();
+	  depth8 = depthM.clone();
+	  depth7 = depthM.clone();
+	  depth6 = depthM.clone();
+	  depth5 = depthM.clone();
+	  depth4 = depthM.clone();
+	  depth3 = depthM.clone();
+	  depth2 = depthM.clone();
+	  depth1 = depthM.clone();
+	  depth0 = depthM.clone();
+	  firstMat = true;
+	}
+	depth9 = depth8.clone();
+	depth8 = depth7.clone();
+	depth7 = depth6.clone();
+	depth6 = depth5.clone();
+	depth5 = depth4.clone();
+	depth4 = depth3.clone();
+	depth3 = depth2.clone();
+	depth2 = depth1.clone();
+	depth1 = depth0.clone();
+	depth0 = depthM.clone();
+	average10Pictures(depth0, depth1, depth2, depth3, depth4, depth5, depth6, depth7, depth8, depth9, depthM);
+
+	medianBlur(depthM, depth, 3);
+
         ++frameCount;
         now = std::chrono::high_resolution_clock::now();
         double elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count() / 1000.0;
@@ -274,12 +322,76 @@ private:
           frameCount = 0;
         }
 
-        dispDepth(depth, depthDisp, 12000.0f);
+	cv::Mat depth_8, depth_canny, can1, can2, can3, can4;
+	depth_8 = Mat::zeros(Size(depth.cols,depth.rows), CV_8U);
+	convert16Uto8U(depth, depth_8);
+	//depth.convertTo(depth_8, CV_8U, 0.3);
+	cv::Canny(depth_8, depth_canny, 100, 50);
+	cv::Canny(depth_8, can1, 100, 20);
+	cv::Canny(depth_8, can2, 100, 30);
+	cv::Canny(depth_8, can3, 100, 40);
+	cv::Canny(depth_8, can4, 100, 50);
+
+
+	sidePointDetect(depth_canny, rightX, rightY, leftX, leftY);
+	cout << "before adjust data:" << rightX << ", " << rightY << ", " << leftX << ", " << leftY << endl;
+	adjustHIROcoordinate(rightX, rightY, leftX, leftY);
+	cout << "send data:" << rightX << ", " << rightY << ", " << leftX << ", " << leftY << endl;
+
+
+	dispDepth(depth, depthDisp, depthMax, depthMin);
+	//depthMaxCut(depth, depthDisp, depthMax, depthMin);
         combine(color, depthDisp, combined);
         //combined = color;
 
         cv::putText(combined, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
-        cv::imshow("Image Viewer", combined);
+        //cv::imshow("Image Viewer", combined);
+
+	//cout << "depth.rows:" << depth.rows << "   depth.cols" << depth.cols << endl;
+	line(depthDisp, Point(depthDisp.cols/2, 0), Point(depthDisp.cols/2, depthDisp.rows), Scalar(255,255,255), 1, 4);
+	line(depthDisp, Point(depthDisp.cols/2-155, 0), Point(depthDisp.cols/2-155, depthDisp.rows), Scalar(255,255,255), 1, 4);
+	line(depthDisp, Point(depthDisp.cols/2+155, 0), Point(depthDisp.cols/2+155, depthDisp.rows), Scalar(255,255,255), 1, 4);
+	line(depthDisp, Point(depthDisp.cols/2-200, 0), Point(depthDisp.cols/2-200, depthDisp.rows), Scalar(255,255,255), 1, 4);
+	line(depthDisp, Point(depthDisp.cols/2+200, 0), Point(depthDisp.cols/2+200, depthDisp.rows), Scalar(255,255,255), 1, 4);
+	//横は200で30cm相当
+	line(depthDisp, Point(0, depthDisp.rows/2), Point(depthDisp.cols, depthDisp.rows/2), Scalar(255,255,255), 1, 4);
+	line(depthDisp, Point(0, depthDisp.rows/2-100), Point(depthDisp.cols, depthDisp.rows/2-100), Scalar(255,255,255), 1, 4);
+	line(depthDisp, Point(0, depthDisp.rows/2-50), Point(depthDisp.cols, depthDisp.rows/2-50), Scalar(255,255,255), 1, 4);
+	//縦は100で15.3cm相当
+	//281:281
+	//エッジの端点を探す範囲
+	line(depthDisp, Point(150, 0), Point(150, depthDisp.rows), Scalar(155,155,155), 1, 4);
+	line(depthDisp, Point(810, 0), Point(810, depthDisp.rows), Scalar(155,155,155), 1, 4);
+	line(depthDisp, Point(0, 520), Point(depthDisp.cols, 520), Scalar(155,155,155), 1, 4);
+	line(depthDisp, Point(0, 100), Point(depthDisp.cols, 100), Scalar(155,155,155), 1, 4);
+
+	//cv::imshow("detph_8", depth_8);
+	cv::imshow("depth viewer", depthDisp);
+	cv::imshow("canny edge", depth_canny);
+	//cv::imshow("can1", can1);
+	//cv::imshow("can2", can2);
+	//cv::imshow("can3", can3);
+	//cv::imshow("can4", can4);
+
+	//ソケット通信
+	string message = "tech cam3d ";//送信メッセージ
+	message = message + to_string(rightX) + " " + to_string(rightY) + " " + to_string(leftX) + " " + to_string(leftY);
+	vector<char> SendData;
+	for(int i = 0; i < int(message.size()); i++){
+	  SendData.push_back(message[i]);
+	}	
+	client.Write(SendData);//送信
+	for(int i = 0; i < int(SendData.size()); i++){
+	  cout << SendData[i];
+	}
+	SendData.clear();
+
+	//readしないと通信がうまく行かない
+	vector<char> ReadData;
+	char nSend = client.Read(ReadData);
+	cout << "read:" << nSend << endl;
+	//ここまでソケット通信
+	
       }
 
       int key = cv::waitKey(1);
@@ -391,7 +503,7 @@ private:
     }
   }
 
-  void dispDepth(const cv::Mat &in, cv::Mat &out, const float maxValue)
+  void dispDepth(const cv::Mat &in, cv::Mat &out, const float maxValue, const float minValue = 500.0f)
   {
     cv::Mat tmp = cv::Mat(in.rows, in.cols, CV_8U);
     const uint32_t maxInt = 255;
@@ -404,12 +516,136 @@ private:
 
       for(int c = 0; c < in.cols; ++c, ++itI, ++itO)
       {
-        *itO = (uint8_t)std::min((*itI * maxInt / maxValue), 255.0f);
+	//最小値をいじるんじゃなくてスケールをいじる
+	if(*itI > minValue){
+        //*itO = (uint8_t)std::min((*itI * maxInt / maxValue), 255.0f);
+	*itO = (uint8_t)std::min(( (maxValue - (maxValue - *itI)*(maxValue/(maxValue-minValue))) * maxInt / maxValue), 255.0f);
+	}
+	else{
+	*itO = (uint8_t)0.0f;
+	}
       }
     }
 
     cv::applyColorMap(tmp, out, cv::COLORMAP_JET);
   }
+
+  void sidePointDetect(cv::Mat &in, int &rightX, int &rightY, int &leftX, int &leftY)//左右の端点を探索
+  {
+    cv::Mat tmp = cv::Mat(in.rows, in.cols, CV_8U);
+    rightX = 500;
+    leftX = 0;
+
+    #pragma omp parallel for
+    for(int r = 0; r < in.rows; ++r){
+      uint8_t *itI = in.ptr<uint8_t>(r);
+      for(int c = 0; c < in.cols; ++c, ++itI){
+	if(*itI == 255 && c > 150 && c < 810 && r < 520 && r > 100){
+	  if(rightX > c){
+	    rightX = c; rightY = r;
+	  }
+	  if(leftX < c){
+	    leftX = c; leftY = r;
+	  }
+	}
+      }
+    }
+    cv::circle(in, cv::Point(rightX, rightY), 10, cv::Scalar(200,200,200), 2, 4);
+    cv::circle(in, cv::Point(rightX, rightY), 15, cv::Scalar(200,200,200), 2, 4);
+    cv::circle(in, cv::Point(leftX, leftY), 13, cv::Scalar(160,160,160), 2, 4);
+  }
+
+
+
+  void depthMaxCut(const cv::Mat &in, cv::Mat &out, const float maxValue, const float minValue)
+  {
+    cv::Mat tmp = cv::Mat(in.rows, in.cols, CV_8U);
+    const uint32_t maxInt = 255;
+
+    #pragma omp parallel for
+    for(int r = 0; r < in.rows; ++r)
+    {
+      const uint16_t *itI = in.ptr<uint16_t>(r);
+      uint8_t *itO = tmp.ptr<uint8_t>(r);
+
+      for(int c = 0; c < in.cols; ++c, ++itI, ++itO)
+      {
+	//最小値をいじるんじゃなくてスケールをいじる
+	if(*itI > minValue){
+        //*itO = (uint8_t)std::min((*itI * maxInt / maxValue), 255.0f);
+	*itO = (uint8_t)std::min(( (maxValue - (maxValue - *itI)*(maxValue/(maxValue-minValue))) * maxInt / maxValue), 255.0f);
+	}
+	else{
+	*itO = (uint8_t)0.0f;
+	}
+	if(*itI > maxValue){
+	  *itO = (uint8_t)0.0f;
+	}
+
+	if(r == in.rows/2 && c == in.cols/2){
+	  int distance = *itI;
+	  cout << "distance:" << distance << endl;
+	}
+      }
+    }
+
+    cv::applyColorMap(tmp, out, cv::COLORMAP_JET);
+  }
+
+
+  void average10Pictures(const cv::Mat &in0, const cv::Mat &in1, const cv::Mat &in2, const cv::Mat &in3, const cv::Mat &in4, const cv::Mat &in5,
+			 const cv::Mat &in6, const cv::Mat &in7, const cv::Mat &in8, const cv::Mat &in9, cv::Mat &out){//画像10個の平均を出力
+	///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    //オリジナルのdepthはCV_16U
+    cv::Mat tmp = cv::Mat(in0.rows, in0.cols, CV_16U);//一旦tmpに入れて最後にoutに入れる
+
+    #pragma omp parallel for
+    for(int r = 0; r < in1.rows; ++r){
+      const uint16_t *it0In = in0.ptr<uint16_t>(r);
+      const uint16_t *it1In = in1.ptr<uint16_t>(r);
+      const uint16_t *it2In = in2.ptr<uint16_t>(r);
+      const uint16_t *it3In = in3.ptr<uint16_t>(r);
+      const uint16_t *it4In = in4.ptr<uint16_t>(r);
+      const uint16_t *it5In = in5.ptr<uint16_t>(r);
+      const uint16_t *it6In = in6.ptr<uint16_t>(r);
+      const uint16_t *it7In = in7.ptr<uint16_t>(r);
+      const uint16_t *it8In = in8.ptr<uint16_t>(r);
+      const uint16_t *it9In = in9.ptr<uint16_t>(r);
+      uint16_t *itOut = tmp.ptr<uint16_t>(r);
+
+      for(int c = 0; c < in0.cols; ++c, ++it0In, ++it1In, ++it2In, ++it3In, ++it4In, ++it5In, ++it6In, ++it7In, ++it8In, ++it9In, ++itOut){
+	*itOut = (*it0In + *it1In + *it2In + *it3In + *it4In + *it5In + *it6In + *it7In + *it8In + *it9In)/10;
+      }
+    }
+    out = tmp;
+  }
+
+  void convert16Uto8U(const cv::Mat &in1, cv::Mat &out){//16Uのin1を8UのoutにMAXVALUEとMINVALUEに基づいて変換
+
+    for(int r = 0; r < in1.rows; r++){
+      const uint16_t *it1In = in1.ptr<uint16_t>(r);
+      uint8_t *itOut = out.ptr<uint8_t>(r);
+      for(int c = 0; c < in1.cols; c++, it1In++, itOut++){
+	if(*it1In > DEPTHMAX){
+	  *itOut = (uint8_t)255;
+	}else if(*it1In < DEPTHMIN){
+	  *itOut = (uint8_t)0;
+	}else{
+	  *itOut = (uint8_t)std::min((*it1In - DEPTHMIN) * (255/(DEPTHMAX - DEPTHMIN)), 255.0f);//深度の分解能は (DEPTHMAX-DEPTHMIN)/255
+	}
+      }
+    }
+  }
+
+  void adjustHIROcoordinate(int &rightX, int &rightY, int &leftX, int &leftY){
+    int rX = rightX, rY = rightY, lX = leftX, lY = leftY;
+    rightX = int( ((rY-277)*0.0015 + 0.340)*10000 );
+    rightY = int( ((rX-285)*0.0015 - 0.358)*10000 );
+    leftX = int( ((lY-277)*0.0015 + 0.340)*10000 );
+    leftY = int( ((lX-675)*0.0015 + 0.358)*10000 );
+    //cout << "adjust data:" << rightX << ", " << rightY << ", " << leftX << ", " << leftY << endl;
+  }
+
 
   void combine(const cv::Mat &inC, const cv::Mat &inD, cv::Mat &out)
   {
@@ -541,6 +777,12 @@ int main(int argc, char **argv)
   {
     return 0;
   }
+  //ソケット通信Socket connection
+  string LOCALHOST = IPADDRESS;
+  int PORT = PORTNUM;
+  client.Init(LOCALHOST, PORT);
+
+
 
   std::string ns = K2_DEFAULT_NS;
   std::string topicColor = K2_TOPIC_QHD K2_TOPIC_IMAGE_COLOR K2_TOPIC_IMAGE_RECT;

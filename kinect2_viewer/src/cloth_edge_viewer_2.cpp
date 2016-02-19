@@ -32,6 +32,11 @@
 #include <pcl/visualization/cloud_viewer.h>
 
 #include <opencv2/opencv.hpp>
+#include <opencv2/core/core.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+#include <opencv/cv.h>
+
 
 #include <ros/ros.h>
 #include <ros/spinner.h>
@@ -50,8 +55,63 @@
 
 #include <kinect2_bridge/kinect2_definitions.h>
 
-#include "TcpLib.hpp"
+static const int PICTURES = 10;
 
+cv::Rect box;
+bool drawing_box = false;
+
+void draw_box(cv::Mat* img, cv::Rect rect){
+    cv::rectangle(*img, cv::Point2d(box.x, box.y), cv::Point2d(box.x + box.width, box.y + box.height),
+        cv::Scalar(0xff, 0x00, 0x00));
+}
+
+void PrintDepth(unsigned int depth)//Mat型の画像のビット深度を出す
+{
+  std::string strDepth = 
+    (
+      depth == CV_8U ? "CV_8U" :
+      depth == CV_8S ? "CV_8S" :
+      depth == CV_16U ? "CV_16U" :
+      depth == CV_16S ? "CV_16S" :
+      depth == CV_32S ? "CV_32S" :
+      depth == CV_32F ? "CV_32F" :
+      depth == CV_64F ? "CV_64F" :
+      "Other"
+    );
+  std::cout << "depth: " << strDepth << std::endl;
+}
+
+// コールバック関数
+void my_mouse_callback(int event, int x, int y, int flags, void* param){
+    cv::Mat* image = static_cast<cv::Mat*>(param);
+
+    switch (event){
+    case cv::EVENT_MOUSEMOVE:
+        if (drawing_box){
+            box.width = x - box.x;
+            box.height = y - box.y;
+        }
+        break;
+
+    case cv::EVENT_LBUTTONDOWN:
+        drawing_box = true;
+        box = cv::Rect(x, y, 0, 0);
+        break;
+
+    case cv::EVENT_LBUTTONUP:
+        drawing_box = false;
+        if (box.width < 0){
+            box.x += box.width;
+            box.width *= -1;
+        }
+        if (box.height < 0){
+            box.y += box.height;
+            box.height *= -1;
+        }
+        draw_box(image, box);
+        break;
+    }
+}
 class Receiver
 {
 public:
@@ -237,32 +297,52 @@ private:
 
   void imageViewer()
   {
-    cv::Mat color, depth, depthDisp, combined;
+    cv::Mat color, depth, depthDisp, combined, previousDepth, aveDepth, aveDepthDisp;
+    cv::Mat depth0, depth1, depth2, depth3, depth4, depth5, depth6, depth7, depth8, depth9;
+    cv::Mat aveDepthMedian, aveDepthMedianLaplacian, aveDepthMedianGaussian, aveDepthMedianGaussianLaplacian, aveDepthMedianGaussianCanny;
+    cv::Mat aveDepthMedianGaussian_convert01;
     std::chrono::time_point<std::chrono::high_resolution_clock> start, now;
     double fps = 0;
-    size_t frameCount = 0;
+    size_t frameCount = 0, trueFrameCount = 0;
     std::ostringstream oss;
     const cv::Point pos(5, 15);
     const cv::Scalar colorText = CV_RGB(255, 255, 255);
     const double sizeText = 0.5;
     const int lineText = 1;
     const int font = cv::FONT_HERSHEY_SIMPLEX;
+    float depthMax = 780.0f, depthMin = 620.0f;
 
-    cv::namedWindow("Image Viewer");
+    std::string name = "Image Viewer";
+    box = cv::Rect(-1, -1, 0, 0);
+    cv::Mat temp = depthDisp.clone();
+
+    cv::namedWindow(name, CV_WINDOW_AUTOSIZE);
     oss << "starting...";
+
+    cv::setMouseCallback(name, my_mouse_callback, (void *)&depthDisp);
 
     start = std::chrono::high_resolution_clock::now();
     for(; running && ros::ok();)
     {
+
       if(updateImage)
       {
         lock.lock();
         color = this->color;
         depth = this->depth;
+
+	//ファイルから読み込み
+	//color = cv::imread("~/catkin_ws/color01.png", 0);
+	//depth = cv::imread("~/catkin_ws/depth01.png", 0);
+
         updateImage = false;
         lock.unlock();
 
+	//exit(0);
+
+
         ++frameCount;
+	++trueFrameCount;
         now = std::chrono::high_resolution_clock::now();
         double elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count() / 1000.0;
         if(elapsed >= 1.0)
@@ -274,12 +354,211 @@ private:
           frameCount = 0;
         }
 
-        dispDepth(depth, depthDisp, 12000.0f);
-        combine(color, depthDisp, combined);
-        //combined = color;
+	cv::Mat out_gaussian_img1, out_bilateral_img1, out_bilateral_img2, out_laplacian_img1,
+	  out_laplacian_img2, out_laplacian_img3, out_median_img1;
+	cv::Mat depth_8, depth_32, depthDisp_gaussian, depthDisp_bilateral, depthDisp_bilateral2, depthDisp_median_bilateral, depthDisp_median, depthDisp_median_bilateral_32;
+	cv::Mat depthM;
 
+	cout << trueFrameCount << " frame" << endl;
+	if(trueFrameCount <= 10){
+	  //メディアンを用いた平滑化
+	  cv::medianBlur(depth, depthM, 3);
+
+	  if(trueFrameCount == 1)
+	    depth0 = depthM;
+	  else if(trueFrameCount == 2)
+	    depth1 = depthM;
+	  else if(trueFrameCount == 3)
+	    depth2 = depthM;
+	  else if(trueFrameCount == 4)
+	    depth3 = depthM;
+	  else if(trueFrameCount == 5)
+	    depth4 = depthM;
+	  else if(trueFrameCount == 6)
+	    depth5 = depthM;
+	  else if(trueFrameCount == 7)
+	    depth6 = depthM;
+	  else if(trueFrameCount == 8)
+	    depth7 = depthM;
+	  else if(trueFrameCount == 9)
+	    depth8 = depthM;
+	  else if(trueFrameCount == 10){
+	    depth9 = depthM;
+	    average10Pictures(depth0, depth1, depth2, depth3, depth4, depth5, depth6, depth7, depth8, depth9, aveDepth);
+
+	    cv::medianBlur(aveDepth, aveDepthMedian, 3);
+	  }
+	}
+	previousDepth = depth;
+
+
+	depth.convertTo(depth_8, CV_8U, 1.0/255);//16bitから8bitに落とすので中の値を8bit分スケール落とす
+	depth.convertTo(depth_32, CV_32F, 1.0/65535);//16bitの値をそのまま小数におさめただけ
+	
+
+	unsigned int colorint = color.depth();
+	PrintDepth(colorint);//colorはCV_8U
+
+
+	cv::Mat out_median_32, out_median_bilateral_32, out_2times, out_3times, out_4times, out_2, out_3, out_4;
+
+	//cv::imshow("flesh depth", depth);
+	//cv::imshow("flesh depth8", depth_8);
+
+
+	//ガウシアンを用いた平滑化
+	//入力画像，出力画像，カーネルサイズ，標準偏差x, y
+	cv::GaussianBlur(depth, out_gaussian_img1, cv::Size(3, 3), 10, 10);
+	//cv::GaussianBlur(depth, out_gaussian_img1, cv::Size(15, 15), 50, 50);
+
+	//メディアンを用いた平滑化
+	cv::medianBlur(depth_8, out_median_img1, 3);
+	cv::medianBlur(depth_32, out_median_32, 3);
+
+
+	//バイラテラルを用いた平滑化
+	cv::bilateralFilter(depth_8, out_bilateral_img1, 7, 5, 5);
+	cv::bilateralFilter(depth_32, out_bilateral_img2, 7, 5, 5);
+	cv::bilateralFilter(out_median_32, out_median_bilateral_32, 5, 50, 20);
+
+	/*
+	//何回かかける
+	cv::Mat bilateralLoop;
+	cv::bilateralFilter(out_median_bilateral_32, bilateralLoop, 5, 50, 20);
+	cv::bilateralFilter(bilateralLoop, out_median_bilateral_32, 5, 50, 20);
+	*/
+
+	cv::Mat out_median_bilateral;
+	cv::Mat depth_8_median;
+	out_median_img1.convertTo(depth_8_median, CV_8U);
+	cv::bilateralFilter(depth_8_median, out_median_bilateral, 3, 3, 5);//3, 3, 5でとりあえず出る
+
+	//ガウシアン
+	cv::Mat out_median_bilateral_gaussian_32, gaussianLoop;
+	cv::GaussianBlur(out_median_bilateral_32, out_median_bilateral_gaussian_32, cv::Size(3, 3), 2, 2);
+	//cv::GaussianBlur(out_median_bilateral_gaussian_32, gaussianLoop, cv::Size(3, 3), 2, 2);
+	//cv::GaussianBlur(gaussianLoop, out_median_bilateral_gaussian_32, cv::Size(3, 3), 2, 2);
+	//何回かガウシアンかける
+	//cv::GaussianBlur(out_median_bilateral_gaussian_32, out_median_bilateral_gaussian_32, cv::Size(3, 3), 0, 0);
+
+
+	//ラプラシアンを用いたエッジ抽出
+	cv::Mat out_median_bilateral_laplacian, out_median_bilateral_laplacian_32;
+	cv::Laplacian(out_median_bilateral, out_median_bilateral_laplacian, CV_32F, 3);
+
+	out_median_bilateral_32.convertTo(out_median_bilateral_32, CV_16U, 65535);//
+	out_median_bilateral_gaussian_32.convertTo(out_median_bilateral_gaussian_32, CV_16S, 65535);
+
+	cv::Mat out_median_bilateral_gaussian_laplacian_32;
+	cv::Laplacian(out_median_bilateral_32, out_median_bilateral_laplacian_32, CV_32F, 3);
+	cv::Laplacian(out_median_bilateral_gaussian_32, out_median_bilateral_gaussian_laplacian_32, CV_32F, 1);
+	
+	//Cannyエッジ
+	/*
+	cv::Mat out_median_bilateral_gaussian_canny_32, out_median_bilateral_gaussian_32_8, out_median_bilateral_32_8, out_median_32_8;
+	out_median_bilateral_gaussian_32.convertTo(out_median_bilateral_gaussian_32_8, CV_8U, 65535/255);
+	out_median_bilateral_32.convertTo(out_median_bilateral_32_8, CV_8U, 65535/255);
+	out_median_32.convertTo(out_median_32_8, CV_8U, 65535/255);
+	cv::Canny(out_median_bilateral_32_8, out_median_bilateral_gaussian_canny_32, 100, 200);
+
+	unsigned int out_median_bilateral_32_8int = out_median_bilateral_32_8.depth();
+	unsigned int out_median_32_8int = out_median_32_8.depth();
+	PrintDepth(out_median_bilateral_32_8int);
+	PrintDepth(out_median_32_8int);
+	*/
+    
+	//素の深度画像は見づらいので見やすく変換
+	dispDepth(depth, depthDisp, depthMax, depthMin);
+	if(trueFrameCount >= 10){
+	  dispDepth(aveDepthMedian, aveDepthDisp, depthMax, depthMin);
+	  //aveDepthMedian.convertTo(aveDepthMedian, CV_32F, 1.0/65535);//16bitの値をそのまま小数におさめただけ
+	  cv::GaussianBlur(aveDepthMedian, aveDepthMedianGaussian, cv::Size(7, 7), 0);
+	  cv::Laplacian(aveDepthMedian, aveDepthMedianLaplacian, CV_32F, 3);
+	  cv::Laplacian(aveDepthMedianGaussian, aveDepthMedianGaussianLaplacian, CV_32F, 3);
+
+	  //aveDepthMedianGaussian.convertTo(aveDepthMedianGaussian_convert01, CV_8U, 65535/255);
+	  //cv::Canny(aveDepthMedianGaussian_convert01, aveDepthMedianGaussianCanny, 3, 2);
+	  //cv::Canny(aveDepthMedianGaussian, aveDepthMedianGaussianCanny, 3, 2);
+	}
+	dispDepth(out_bilateral_img1, depthDisp_bilateral, depthMax, depthMin);
+	//out_median_bilateral.convertTo(out_median_bilateral, CV_16U, 255);//8から16なので8bit分掛ける
+	dispDepth(out_median_bilateral, depthDisp_median_bilateral, depthMax, depthMin);
+	dispDepth(out_gaussian_img1, depthDisp_gaussian, depthMax, depthMin);
+
+	out_bilateral_img2.convertTo(out_bilateral_img2, CV_16U, depthMin);
+	dispDepth(out_bilateral_img2, depthDisp_bilateral2, depthMax, depthMin);
+
+	out_median_img1.convertTo(out_median_img1, CV_16U, 8);
+	//dispDepth(out_median_img1, depthDisp_median, 800.0f, 500.0f);
+
+	out_median_32.convertTo(out_median_32, CV_16U, 65535);
+	dispDepth(out_median_32, depthDisp_median, depthMax, depthMin);
+
+	//out_median_bilateral_32.convertTo(out_median_bilateral_32, CV_16U, 65535);//上の方に書いてる
+	dispDepth(out_median_bilateral_32, depthDisp_median_bilateral_32, depthMax, depthMin);
+
+
+	cv::Mat color_laplacian;
+	cv::Laplacian(color, color_laplacian, CV_8U, 3);
+
+        combine(color, depthDisp, combined);
+
+	//ビット深度表示
+	unsigned int depthint = depth.depth();
+	unsigned int depthDispint = depthDisp.depth();
+	PrintDepth(depthint);
+	PrintDepth(depthDispint);
+
+	cout << depth.type() << " " << depth.depth() <<  endl;
+	depthDisp.copyTo(temp);
+	if(drawing_box){
+	  draw_box(&temp, box);
+	  cout << "square drawing" << endl;
+	}
+	cout << "drawing" << endl;
         cv::putText(combined, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
-        cv::imshow("Image Viewer", combined);
+
+	cv::imshow("color laplacian", color_laplacian);
+	cv::imshow("Origin depth", depthDisp);
+	if(trueFrameCount >= 10){
+	  cv::imshow("average depth", aveDepthDisp);
+	  cv::imshow("average depth edge", aveDepthMedianLaplacian);
+	  cv::imshow("average depth edge gaussian", aveDepthMedianGaussianLaplacian);
+	  //cv::imshow("average depth edge gaussian canny", aveDepthMedianGaussianCanny);
+	}
+	//cv::imshow("flesh depth", depth);
+	//cv::imshow("flesh depth8", depth_8);
+        cv::imshow("Image Viewer", color);
+	//cv::imshow("depth Viewer", depth);
+	//cv::imshow("gaussian depth", out_gaussian_img1);
+	//cv::imshow("gaussian depth", depthDisp_gaussian);
+	cv::imshow("median depth", depthDisp_median);
+	//cv::imshow("bilateral depth", depthDisp_bilateral2);
+	//cv::imshow("median bilateral 32", depthDisp_median_bilateral_32);
+	//cv::imshow("median bilateral", depthDisp_median_bilateral);
+	//cv::imshow("median bilateral origin", out_median_bilateral);
+	//cv::imshow("bilateral depth", depthDisp_bilateral);
+	//cv::imshow("LOG viewer", out_laplacian_img1);
+	//cv::imshow("bilateral viewer", out_laplacian_img2);
+	//cv::imshow("median viewer", out_laplacian_img3);
+	//cv::imshow("median bilateral laplacian", out_median_bilateral_laplacian);//まあまあ
+
+	cv::imshow("edge", out_median_bilateral_laplacian_32);
+	//cv::imshow("median bilateral gaussian laplacian", out_median_bilateral_gaussian_laplacian_32);
+	//cv::imshow("median bilateral gaussian canny", out_median_bilateral_gaussian_canny_32);
+	//cv::imshow("edge2", out_2);
+	//cv::imshow("edge3", out_3);
+	//cv::imshow("edge4", out_4);
+
+	cout << "showed" << endl;
+
+	/*
+	if(trueFrameCount >= 10)
+	  getchar();
+	*/
+
+	cv::imwrite("color02.png", color);
+	cv::imwrite("depth02.png", depth);
       }
 
       int key = cv::waitKey(1);
@@ -310,6 +589,7 @@ private:
   void cloudViewer()
   {
     cv::Mat color, depth;
+    cv::Mat depth_32, out_median_img1, out_median_bilateral_img1, out_median_bilateral_gaussian_img1;
     pcl::visualization::PCLVisualizer::Ptr visualizer(new pcl::visualization::PCLVisualizer("Cloud Viewer"));
     const std::string cloudName = "rendered";
 
@@ -340,6 +620,30 @@ private:
         depth = this->depth;
         updateCloud = false;
         lock.unlock();
+
+
+
+	depth.convertTo(depth_32, CV_32F, 1.0/65535);//16bitの値をそのまま小数におさめただけ
+
+	//メディアンを用いた平滑化
+	cv::medianBlur(depth_32, out_median_img1, 3);
+
+	//バイラテラルを用いた平滑化
+	cv::bilateralFilter(out_median_img1, out_median_bilateral_img1, 5, 50, 20);
+	
+	cv::Mat bilateral_loop;
+	cv::bilateralFilter(out_median_bilateral_img1, bilateral_loop, 5, 50, 20);
+	cv::bilateralFilter(bilateral_loop, out_median_bilateral_img1, 5, 50, 20);
+	
+
+	//ガウシアン
+	cv::GaussianBlur(out_median_bilateral_img1, out_median_bilateral_gaussian_img1, cv::Size(3, 3), 2, 2);
+
+	//depth_32.convertTo(depth, CV_16U, 65535);
+	out_median_img1.convertTo(depth, CV_16U, 65535);
+	//out_median_bilateral_img1.convertTo(depth, CV_16U, 65535);
+	//out_median_bilateral_gaussian_img1.convertTo(depth, CV_16U, 65535);
+
 
         createCloud(depth, color, cloud);
 
@@ -391,7 +695,7 @@ private:
     }
   }
 
-  void dispDepth(const cv::Mat &in, cv::Mat &out, const float maxValue)
+  void dispDepth(const cv::Mat &in, cv::Mat &out, const float maxValue, const float minValue = 500.0f)
   {
     cv::Mat tmp = cv::Mat(in.rows, in.cols, CV_8U);
     const uint32_t maxInt = 255;
@@ -404,12 +708,72 @@ private:
 
       for(int c = 0; c < in.cols; ++c, ++itI, ++itO)
       {
-        *itO = (uint8_t)std::min((*itI * maxInt / maxValue), 255.0f);
+	//最小値をいじるんじゃなくてスケールをいじる
+	if(*itI > minValue){
+        //*itO = (uint8_t)std::min((*itI * maxInt / maxValue), 255.0f);
+	*itO = (uint8_t)std::min(( (maxValue - (maxValue - *itI)*(maxValue/(maxValue-minValue))) * maxInt / maxValue), 255.0f);
+	}
+	else{
+	*itO = (uint8_t)0.0f;
+	}
       }
     }
 
     cv::applyColorMap(tmp, out, cv::COLORMAP_JET);
   }
+
+  
+  void average2Pictures(const cv::Mat &in1, const cv::Mat &in2, cv::Mat &out){//画像in1とin2の平均を出力
+	///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    //オリジナルのdepthはCV_16U
+    cv::Mat tmp = cv::Mat(in1.rows, in1.cols, CV_16U);//一旦tmpに入れて最後にoutに入れる
+
+    #pragma omp parallel for
+    for(int r = 0; r < in1.rows; ++r){
+      const uint16_t *it1In = in1.ptr<uint16_t>(r);
+      const uint16_t *it2In = in2.ptr<uint16_t>(r);
+      uint16_t *itOut = tmp.ptr<uint16_t>(r);
+
+      for(int c = 0; c < in1.cols; ++c, ++it1In, ++it2In, ++itOut){
+	*itOut = (*it1In + *it2In)/2;
+      }
+    }
+    out = tmp;
+  }
+
+  void average10Pictures(const cv::Mat &in0, const cv::Mat &in1, const cv::Mat &in2, const cv::Mat &in3, const cv::Mat &in4, const cv::Mat &in5,
+			 const cv::Mat &in6, const cv::Mat &in7, const cv::Mat &in8, const cv::Mat &in9, cv::Mat &out){//画像in1とin2の平均を出力
+	///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    //オリジナルのdepthはCV_16U
+    cv::Mat tmp = cv::Mat(in0.rows, in0.cols, CV_16U);//一旦tmpに入れて最後にoutに入れる
+
+    #pragma omp parallel for
+    for(int r = 0; r < in1.rows; ++r){
+      const uint16_t *it0In = in0.ptr<uint16_t>(r);
+      const uint16_t *it1In = in1.ptr<uint16_t>(r);
+      const uint16_t *it2In = in2.ptr<uint16_t>(r);
+      const uint16_t *it3In = in3.ptr<uint16_t>(r);
+      const uint16_t *it4In = in4.ptr<uint16_t>(r);
+      const uint16_t *it5In = in5.ptr<uint16_t>(r);
+      const uint16_t *it6In = in6.ptr<uint16_t>(r);
+      const uint16_t *it7In = in7.ptr<uint16_t>(r);
+      const uint16_t *it8In = in8.ptr<uint16_t>(r);
+      const uint16_t *it9In = in9.ptr<uint16_t>(r);
+      uint16_t *itOut = tmp.ptr<uint16_t>(r);
+
+      for(int c = 0; c < in0.cols; ++c, ++it0In, ++it1In, ++it2In, ++it3In, ++it4In, ++it5In, ++it6In, ++it7In, ++it8In, ++it9In, ++itOut){
+	*itOut = (*it0In + *it1In + *it2In + *it3In + *it4In + *it5In + *it6In + *it7In + *it8In + *it9In)/10;
+      }
+    }
+    out = tmp;
+    cout << "average10Pictures finish" << endl;
+  }
+
+  /*
+  void averagePluralPictures(const cv::Mat &in[PICTURES], cv::Mat &out){
+    cv::Mat tmp = cv::Mat(in[0].rows, in[0].cols, CV_16U);
+  }
+  */  
 
   void combine(const cv::Mat &inC, const cv::Mat &inD, cv::Mat &out)
   {
@@ -477,15 +841,15 @@ private:
     const std::string depthName = baseName + "_depth.png";
     const std::string depthColoredName = baseName + "_depth_colored.png";
 
-    OUT_INFO("saving cloud: " << cloudName);
+    std::cout << "saving cloud: " << cloudName << std::endl;
     writer.writeBinary(cloudName, *cloud);
-    OUT_INFO("saving color: " << colorName);
+    std::cout << "saving color: " << colorName << std::endl;
     cv::imwrite(colorName, color, params);
-    OUT_INFO("saving depth: " << depthName);
+    std::cout << "saving depth: " << depthName << std::endl;
     cv::imwrite(depthName, depth, params);
-    OUT_INFO("saving depth: " << depthColoredName);
+    std::cout << "saving depth: " << depthColoredName << std::endl;
     cv::imwrite(depthColoredName, depthColored, params);
-    OUT_INFO("saving complete!");
+    std::cout << "saving complete!" << std::endl;
     ++frame;
   }
 
@@ -515,27 +879,23 @@ private:
 
 void help(const std::string &path)
 {
-  std::cout << path << FG_BLUE " [options]" << std::endl
-            << FG_GREEN "  name" NO_COLOR ": " FG_YELLOW "'any string'" NO_COLOR " equals to the kinect2_bridge topic base name" << std::endl
-            << FG_GREEN "  mode" NO_COLOR ": " FG_YELLOW "'qhd'" NO_COLOR ", " FG_YELLOW "'hd'" NO_COLOR ", " FG_YELLOW "'sd'" NO_COLOR " or " FG_YELLOW "'ir'" << std::endl
-            << FG_GREEN "  visualization" NO_COLOR ": " FG_YELLOW "'image'" NO_COLOR ", " FG_YELLOW "'cloud'" NO_COLOR " or " FG_YELLOW "'both'" << std::endl
-            << FG_GREEN "  options" NO_COLOR ":" << std::endl
-            << FG_YELLOW "    'compressed'" NO_COLOR " use compressed instead of raw topics" << std::endl
-            << FG_YELLOW "    'approx'" NO_COLOR " use approximate time synchronization" << std::endl;
+  std::cout << path << " [options]" << std::endl
+            << "  name: 'any string' equals to the kinect2_bridge topic base name" << std::endl
+            << "  mode: 'qhd', 'hd', 'sd' or 'ir'" << std::endl
+            << "  visualization: 'image', 'cloud' or 'both'" << std::endl
+            << "  options:" << std::endl
+            << "    'compressed' use compressed instead of raw topics" << std::endl
+            << "    'approx' use approximate time synchronization" << std::endl;
 }
+
+
+
+
 
 int main(int argc, char **argv)
 {
-#if EXTENDED_OUTPUT
-  ROSCONSOLE_AUTOINIT;
-  if(!getenv("ROSCONSOLE_FORMAT"))
-  {
-    ros::console::g_formatter.tokens_.clear();
-    ros::console::g_formatter.init("[${severity}] ${message}");
-  }
-#endif
-
   ros::init(argc, argv, "kinect2_viewer", ros::init_options::AnonymousName);
+
 
   if(!ros::ok())
   {
@@ -608,12 +968,12 @@ int main(int argc, char **argv)
 
   topicColor = "/" + ns + topicColor;
   topicDepth = "/" + ns + topicDepth;
-  OUT_INFO("topic color: " FG_CYAN << topicColor << NO_COLOR);
-  OUT_INFO("topic depth: " FG_CYAN << topicDepth << NO_COLOR);
+  std::cout << "topic color: " << topicColor << std::endl;
+  std::cout << "topic depth: " << topicDepth << std::endl;
 
   Receiver receiver(topicColor, topicDepth, useExact, useCompressed);
 
-  OUT_INFO("starting receiver...");
+  std::cout << "starting receiver..." << std::endl;
   receiver.run(mode);
 
   ros::shutdown();

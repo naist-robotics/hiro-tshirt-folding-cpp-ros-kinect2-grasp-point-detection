@@ -90,6 +90,22 @@ target_link_libraries(kinect2_bridge
   ${kinect2_registration_LIBRARY}
 )
 
+add_executable(kinect2_bridge_02 src/kinect2_bridge_02.cpp)
+target_link_libraries(kinect2_bridge_02
+  ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+  ${freenect2_LIBRARY}
+  ${kinect2_registration_LIBRARY}
+)
+
+add_executable(kinect2_bridge_03_commandLineNum src/kinect2_bridge_03_commandLineNum.cpp)
+target_link_libraries(kinect2_bridge_03_commandLineNum
+  ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+  ${freenect2_LIBRARY}
+  ${kinect2_registration_LIBRARY}
+)
+
 #############
 ## Install ##
 #############

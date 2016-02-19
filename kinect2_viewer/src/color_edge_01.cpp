@@ -12,7 +12,7 @@
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
- * limitations under the License.
+ * limitations under the License
  */
 
 #include <stdlib.h>
@@ -50,7 +50,6 @@
 
 #include <kinect2_bridge/kinect2_definitions.h>
 
-#include "TcpLib.hpp"
 
 class Receiver
 {
@@ -238,6 +237,8 @@ private:
   void imageViewer()
   {
     cv::Mat color, depth, depthDisp, combined;
+    cv::Mat gray, canny01, canny02, canny03, canny04, canny05;
+
     std::chrono::time_point<std::chrono::high_resolution_clock> start, now;
     double fps = 0;
     size_t frameCount = 0;
@@ -276,10 +277,43 @@ private:
 
         dispDepth(depth, depthDisp, 12000.0f);
         combine(color, depthDisp, combined);
-        //combined = color;
+        //combined = color;//
+
+	//カラー画像のエッジを出す
+	cvtColor(color, gray, CV_RGB2GRAY);
+/*
+	cv::Canny(gray, canny01, 180, 1);
+	cv::Canny(gray, canny02, 180, 5);
+	cv::Canny(gray, canny03, 180, 10);
+	cv::Canny(gray, canny04, 180, 15);
+	cv::Canny(gray, canny05, 180, 20);
+*/
+	cv::Canny(gray, canny01, 50, 20);
+	cv::Canny(gray, canny02, 100, 20);
+	cv::Canny(gray, canny03, 150, 20);
+	cv::Canny(gray, canny04, 200, 20);
+	//cv::Canny(gray, canny05, 250, 20);
+
+
+	cv::Canny(gray, canny05, 250, 100);//輪郭はこのパラメータ
+
+	cv::imshow("color", color);
+	cv::imshow("gray", gray);
+	cv::imshow("canny01", canny01);
+	cv::imshow("canny02", canny02);
+	cv::imshow("canny03", canny03);
+	cv::imshow("canny04", canny04);
+	cv::imshow("canny05", canny05);
+
+
+/*
+	char str1[100];
+	sprintf(str1, "20151129depth/edgeA%2d.png", PATTERN);
+	cv::imwrite(str1, addDepth_Canny01);
+*/
 
         cv::putText(combined, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
-        cv::imshow("Image Viewer", combined);
+        //cv::imshow("Image Viewer", combined);
       }
 
       int key = cv::waitKey(1);

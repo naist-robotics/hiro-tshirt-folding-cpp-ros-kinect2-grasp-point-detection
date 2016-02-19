@@ -63,19 +63,19 @@ void kernel project(global const ushort *depth, global int4 *idx, global ushort 
   const ushort zI = (ushort)(projected.z * 1000.0f);
 
   // Check if depth is valid and projection is inside the image
-  if(xL < 0 || xL >= widthR)
+  if(xL < 0)
   {
     indices.s0 = indices.s2 = -1;
   }
-  if(yL < 0 || yL >= heightR)
+  if(yL < 0)
   {
     indices.s0 = indices.s1 = -1;
   }
-  if(xH < 0 || xH >= widthR)
+  if(xH >= widthR)
   {
     indices.s1 = indices.s3 = -1;
   }
-  if(yH < 0 || yH >= heightR)
+  if(yH >= heightR)
   {
     indices.s2 = indices.s3 = -1;
   }

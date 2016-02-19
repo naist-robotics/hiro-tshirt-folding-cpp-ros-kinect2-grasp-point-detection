@@ -64,13 +64,87 @@ add_custom_target(additional_files_${PROJECT_NAME}
 
 include_directories(include
   ${catkin_INCLUDE_DIRS}
-  ${OpenCV_INCLUDE_DIR}
+#  ${OpenCV_INCLUDE_DIR}
+  ${OpenCV_INCLUDE_DIRS}
   ${PCL_INCLUDE_DIRS}
   ${kinect2_bridge_INCLUDE_DIRS}
 )
 
 add_executable(kinect2_viewer src/viewer.cpp)
 target_link_libraries(kinect2_viewer
+  ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+  ${PCL_LIBRARIES}
+  ${kinect2_bridge_LIBRARIES}
+)
+
+add_executable(color_edge_01 src/color_edge_01.cpp)
+target_link_libraries(color_edge_01
+  ${catkin_LIBRARIES}
+#  ${OpenCV_LIBRARIES}
+  ${OpenCV_LIBS} 
+  ${PCL_LIBRARIES}
+  ${kinect2_bridge_LIBRARIES}
+)
+
+add_executable(cloth_edge_viewer src/cloth_edge_viewer.cpp)
+target_link_libraries(cloth_edge_viewer
+  ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+  ${PCL_LIBRARIES}
+  ${kinect2_bridge_LIBRARIES}
+)
+
+add_executable(cloth_edge_viewer_average_01 src/cloth_edge_viewer_average_01.cpp)
+target_link_libraries(cloth_edge_viewer_average_01
+  ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+  ${PCL_LIBRARIES}
+  ${kinect2_bridge_LIBRARIES}
+)
+
+add_executable(cloth_edge_viewer_average_edge_01 src/cloth_edge_viewer_average_edge_01.cpp)
+target_link_libraries(cloth_edge_viewer_average_edge_01
+  ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+  ${PCL_LIBRARIES}
+  ${kinect2_bridge_LIBRARIES}
+)
+
+add_executable(ir_255frame_capture src/ir_255frame_capture.cpp)
+target_link_libraries(ir_255frame_capture
+  ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+  ${PCL_LIBRARIES}
+  ${kinect2_bridge_LIBRARIES}
+)
+
+add_executable(takeColor01 src/takeColor01.cpp)
+target_link_libraries(takeColor01
+  ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+  ${PCL_LIBRARIES}
+  ${kinect2_bridge_LIBRARIES}
+)
+
+add_executable(socketTestServer src/socketTestServer.cpp)
+target_link_libraries(socketTestServer
+  ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+  ${PCL_LIBRARIES}
+  ${kinect2_bridge_LIBRARIES}
+)
+
+add_executable(socketTestClient src/socketTestClient.cpp)
+target_link_libraries(socketTestClient
+  ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+  ${PCL_LIBRARIES}
+  ${kinect2_bridge_LIBRARIES}
+)
+
+add_executable(socketTestViewer src/socketTestViewer.cpp)
+target_link_libraries(socketTestViewer
   ${catkin_LIBRARIES}
   ${OpenCV_LIBRARIES}
   ${PCL_LIBRARIES}

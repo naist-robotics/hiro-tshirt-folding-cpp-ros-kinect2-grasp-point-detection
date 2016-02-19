@@ -37,7 +37,7 @@ public:
 
   bool init(const int deviceId);
 
-  bool registerDepth(const cv::Mat &depth, cv::Mat &registered);
+  void registerDepth(const cv::Mat &depth, cv::Mat &registered);
 
 private:
   void createLookup();
