@@ -54,14 +54,22 @@
 
 #define IPADDRESS "163.221.44.226"
 #define PORTNUM 3794
+/*
+//######Kinect Parameters##################
+#define float ku	// width of a pixel
+#define float kv	// hight of a pixel
+#define float f		// focal length
+#define float u0	// Optical centre u coordinate
+#define floar v0	// Optical center v coordinate  */
 
 using namespace std;
 using namespace cv;
 
 TcpClient client;//ソケット通信のクライアント「client」を作成
 
-static const float DEPTHMAX = 750;//深度画像を見やすくする　間隔は450
-static const float DEPTHMIN = 690;//780, 720
+// Limits field of view in depth. Check.
+static const float DEPTHMAX = 740;//深度画像を見やすくする　間隔は60
+static const float DEPTHMIN = 680;//750, 690
 
 class Receiver
 {
@@ -260,7 +268,7 @@ private:
     const int lineText = 1;
     const int font = cv::FONT_HERSHEY_SIMPLEX;
     //float depthMax = 780.0f, depthMin = 620.0f;//20160121
-    float depthMax = 744.0f, depthMin = 620.0f;
+    float depthMax = 743.0f, depthMin = 615.0f;
     bool firstMat = false;
 
     //ソケット通信
@@ -327,15 +335,15 @@ private:
 	convert16Uto8U(depth, depth_8);
 	//depth.convertTo(depth_8, CV_8U, 0.3);
 	cv::Canny(depth_8, depth_canny, 100, 50);
-	cv::Canny(depth_8, can1, 100, 20);
+	/*cv::Canny(depth_8, can1, 100, 20);
 	cv::Canny(depth_8, can2, 100, 30);
 	cv::Canny(depth_8, can3, 100, 40);
-	cv::Canny(depth_8, can4, 100, 50);
+	cv::Canny(depth_8, can4, 100, 50);*/
 
 
-	sidePointDetect(depth_canny, rightX, rightY, leftX, leftY);
+	sidePointDetect(depth_canny, rightX, rightY, leftX, leftY); // (find rightmost and leftmost points (within hard-coded limits) in input matrix)
 	cout << "before adjust data:" << rightX << ", " << rightY << ", " << leftX << ", " << leftY << endl;
-	adjustHIROcoordinate(rightX, rightY, leftX, leftY);
+	adjustHIROcoordinate(rightX, rightY, leftX, leftY); // Transformation from Kinect CSYS to HIRO's coordinate system
 	cout << "send data:" << rightX << ", " << rightY << ", " << leftX << ", " << leftY << endl;
 
 
@@ -418,6 +426,7 @@ private:
     cv::destroyAllWindows();
     cv::waitKey(100);
   }
+
 
   void cloudViewer()
   {
@@ -530,7 +539,7 @@ private:
     cv::applyColorMap(tmp, out, cv::COLORMAP_JET);
   }
 
-  void sidePointDetect(cv::Mat &in, int &rightX, int &rightY, int &leftX, int &leftY)//左右の端点を探索
+ void sidePointDetect(cv::Mat &in, int &rightX, int &rightY, int &leftX, int &leftY)//左右の端点を探索
   {
     cv::Mat tmp = cv::Mat(in.rows, in.cols, CV_8U);
     rightX = 500;
@@ -540,7 +549,7 @@ private:
     for(int r = 0; r < in.rows; ++r){
       uint8_t *itI = in.ptr<uint8_t>(r);
       for(int c = 0; c < in.cols; ++c, ++itI){
-	if(*itI == 255 && c > 150 && c < 810 && r < 520 && r > 100){
+	if(*itI == 255 && c > 200 && c < 650 && r < 450 && r > 120){
 	  if(rightX > c){
 	    rightX = c; rightY = r;
 	  }
@@ -553,10 +562,9 @@ private:
     cv::circle(in, cv::Point(rightX, rightY), 10, cv::Scalar(200,200,200), 2, 4);
     cv::circle(in, cv::Point(rightX, rightY), 15, cv::Scalar(200,200,200), 2, 4);
     cv::circle(in, cv::Point(leftX, leftY), 13, cv::Scalar(160,160,160), 2, 4);
-  }
+  } //左右の端点を探索
 
-
-
+// Check for watabe's changes: function not used
   void depthMaxCut(const cv::Mat &in, cv::Mat &out, const float maxValue, const float minValue)
   {
     cv::Mat tmp = cv::Mat(in.rows, in.cols, CV_8U);
@@ -593,7 +601,7 @@ private:
   }
 
 
-  void average10Pictures(const cv::Mat &in0, const cv::Mat &in1, const cv::Mat &in2, const cv::Mat &in3, const cv::Mat &in4, const cv::Mat &in5,
+void average10Pictures(const cv::Mat &in0, const cv::Mat &in1, const cv::Mat &in2, const cv::Mat &in3, const cv::Mat &in4, const cv::Mat &in5,
 			 const cv::Mat &in6, const cv::Mat &in7, const cv::Mat &in8, const cv::Mat &in9, cv::Mat &out){//画像10個の平均を出力
 	///////////////////////////////////////////////////////////////////////////////////////////////////////////////
     //オリジナルのdepthはCV_16U
@@ -639,13 +647,33 @@ private:
 
   void adjustHIROcoordinate(int &rightX, int &rightY, int &leftX, int &leftY){
     int rX = rightX, rY = rightY, lX = leftX, lY = leftY;
-    rightX = int( ((rY-277)*0.0015 + 0.340)*10000 );
-    rightY = int( ((rX-285)*0.0015 - 0.358)*10000 );
-    leftX = int( ((lY-277)*0.0015 + 0.340)*10000 );
-    leftY = int( ((lX-675)*0.0015 + 0.358)*10000 );
-    //cout << "adjust data:" << rightX << ", " << rightY << ", " << leftX << ", " << leftY << endl;
-  }
 
+	rightX = int( ((rY-277)*0.0015 + 0.340)*10000 );
+	rightY = int( ((rX-285)*0.0015 - 0.358)*10000 );
+	leftX  = int( ((lY-277)*0.0015 + 0.340)*10000 );
+	leftY  = int( ((lX-675)*0.0015 + 0.358)*10000 );
+    	//cout << "adjust data:" << rightX << ", " << rightY << ", " << leftX << ", " << leftY << endl;
+
+	
+	//TO DO
+	/*
+		create pcl pcl::rightGP
+		create pcl pcl::rightGP
+
+	
+    //Tranformation from picture to Kinect Coordinate system
+	rightX = int( ku*f*rX/z + u0);
+	rightY = int( kv*f*rY/z + u0);
+
+	leftX = int( ku*f*lX/z + u0);
+	leftY = int( kv*f*lY/z + u0);
+		
+
+    //Tranformation from Kinect Coordinate System to HIRo Coordinate system
+	double kinectToHIRO[4][4] = {{a, b, c}, {d, e, f}, {g, h, i}};
+	Mat kinectToHIRO = Mat(4, 4, CV_64F, m); */
+    
+  }
 
   void combine(const cv::Mat &inC, const cv::Mat &inD, cv::Mat &out)
   {
@@ -748,6 +776,9 @@ private:
     }
   }
 };
+
+// Defines additional functions in Receiver class
+//#include "viewerExtraFunctions.cpp"
 
 void help(const std::string &path)
 {
@@ -861,3 +892,90 @@ int main(int argc, char **argv)
   ros::shutdown();
   return 0;
 }
+
+/*
+struct camera_params_t
+{
+    struct ir_t{
+        float cx = 254.878f;
+        float cy = 205.395f;
+        float fx = 365.456f;
+        float fy = 365.456f;
+        float k1 = 0.0905474;
+        float k2 = -0.26819;
+        float k3 = 0.0950862;
+        float p1 = 0.0;
+        float p2 = 0.0;
+    }ir;
+}camera_params;
+
+
+bool ObjectTracker::depth_image_to_point_cloud(cv::Mat& depth, cv::Mat& xycords, pcl::PointCloud<PointT>::Ptr dst)
+{
+    //Process Depth To PCL Cloud
+    uint pixel_count = depth.rows * depth.cols;
+    dst->resize(pixel_count);
+    dst->height = depth.rows;
+    dst->width = depth.cols;
+
+    float x = 0.0f, y = 0.0f;
+
+    float* ptr = (float*) (depth.data);
+    for (uint i = 0; i < pixel_count; ++i)
+    {
+        cv::Vec2f xy = xycords.at<cv::Vec2f>(0, i);
+        x = xy[1]; y = xy[0];
+
+        PointT point;
+        point.z = (static_cast<float>(*ptr)) / (1000.0f); // Convert from mm to meters
+        point.x = (x - config.camera_params.ir.cx) * point.z / config.camera_params.ir.fx;
+        point.y = (y - config.camera_params.ir.cy) * point.z / config.camera_params.ir.fy;
+        point.r = 128; point.g = 128; point.b = 128;
+        dst->at(i) = point;
+
+        ++ptr;
+    }
+}
+
+nt width = 512;
+int height = 424;
+
+cv::Mat cv_img_cords = cv::Mat(1, width*height, CV_32FC2);
+for (int r = 0; r < height; ++r) {
+    for (int c = 0; c < width; ++c) {
+        cv_img_cords.at<cv::Vec2f>(0, r*width + c) = cv::Vec2f((float)r, (float)c);
+    }
+}
+
+cv::Mat k = cv::Mat::eye(3, 3, CV_32F);
+k.at<float>(0,0) = config.camera_params.ir.fx;
+k.at<float>(1,1) = config.camera_params.ir.fy;
+k.at<float>(0,2) = config.camera_params.ir.cx;
+k.at<float>(1,2) = config.camera_params.ir.cy;
+
+cv::Mat dist_coeffs = cv::Mat::zeros(1, 8, CV_32F);
+dist_coeffs.at<float>(0,0) = config.camera_params.ir.k1;
+dist_coeffs.at<float>(0,1) = config.camera_params.ir.k2;
+dist_coeffs.at<float>(0,2) = config.camera_params.ir.p1;
+dist_coeffs.at<float>(0,3) = config.camera_params.ir.p2;
+dist_coeffs.at<float>(0,4) = config.camera_params.ir.k3;
+
+cv::Mat new_camera_matrix = cv::getOptimalNewCameraMatrix(k, dist_coeffs, cv::Size2i(height,width), 0.0);
+
+cv::undistortPoints(cv_img_cords, cv_img_corrected_cords, k, dist_coeffs, cv::noArray(), new_camera_matrix);
+
+
+
+*/
+
+
+
+
+
+
+
+
+
+
+
+

@@ -99,8 +99,8 @@ using namespace std;
 using namespace cv;
 //
 static const int NUMOFDEPTH = 80;
-static const float DEPTHMAX = 8300.0f;//深度画像を見やすくする　間隔は450
-static const float DEPTHMIN = 7950.0f;
+static const float DEPTHMAX = 7950.0f;//深度画像を見やすくする　間隔は450
+static const float DEPTHMIN = 7600.0f;
 
 static const int DEPTHROWS = 424;
 static const int DEPTHCOLS = 512;
@@ -1003,11 +1003,13 @@ private:
 	  //cv::imwrite(str5, addDepth_Canny05);
 	  //cv::imwrite(strDepthDisp, addDepthDisp);
 
+	  /*
 	  line(addDepth_8U, Point(addDepth_8U.cols/2, 0), Point(addDepth_8U.cols/2, addDepth_8U.rows), Scalar(20,20,20), 1, 4);
 	  line(addDepth_8U, Point(addDepth_8U.cols/2-111, 0), Point(addDepth_8U.cols/2-111, addDepth_8U.rows), Scalar(20,20,20), 1, 4);
 	  line(addDepth_8U, Point(addDepth_8U.cols/2-200, 0), Point(addDepth_8U.cols/2-200, addDepth_8U.rows), Scalar(20,20,20), 1, 4);
 	  line(addDepth_8U, Point(addDepth_8U.cols/2+111, 0), Point(addDepth_8U.cols/2+111, addDepth_8U.rows), Scalar(20,20,20), 1, 4);
 	  line(addDepth_8U, Point(addDepth_8U.cols/2+200, 0), Point(addDepth_8U.cols/2+200, addDepth_8U.rows), Scalar(20,20,20), 1, 4);
+	  */
 
 	  cv::imwrite(strDepth, addDepth_8U);
 cout << "imwrite" << endl;
