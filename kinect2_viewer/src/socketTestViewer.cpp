@@ -349,17 +349,13 @@ private:
 		
 	getSidePoints(depth,depth_canny, rightX, rightY, leftX, leftY,rightArmGp,leftArmGp); // (find rightmost and leftmost points (within hard-coded limits) in input matrix)
 
-	//cout << "before adjust data:" << rightX << ", " << rightY << ", " << leftX << ", " << leftY << endl;
+	
 
 
 
 	adjustHIROcoordinate(rightX, rightY, leftX, leftY,rightArmGp,leftArmGp); // Transformation from Kinect CSYS to HIRO's coordinate system	
 
-	/*cout << "send data:" << rightX << ", " << rightY << ", " << leftX << ", " << leftY << endl;
-	cout << "test after:" <<  endl;
-	cout << "rightArmGp" << rightArmGp.at<double>(0,1) <<","<<rightArmGp.at<double>(1,1) <<","<< rightArmGp.at<double>(2,1)<<","<<  rightArmGp.at<double>(3,1)<<endl;
-	cout << "leftArmGp" << leftArmGp.at<double>(0,1) <<","<<leftArmGp.at<double>(1,1) <<","<< leftArmGp.at<double>(2,1)<<","<<  leftArmGp.at<double>(3,1)<<endl;
-*/
+	
 
 	dispDepth(depth, depthDisp, depthMax, depthMin);
 	//depthMaxCut(depth, depthDisp, depthMax, depthMin);
@@ -398,6 +394,10 @@ private:
 	//ソケット通信
 	string message = "tech cam3d ";//送信メッセージ
 	message = message + to_string(rightX) + " " + to_string(rightY) + " " + to_string(leftX) + " " + to_string(leftY);
+	for (int i=0;i<rightArmGp.rows;i++) 
+		message=message + " " + to_string(rightArmGp.at<double>(i-1,1))+ " " + to_string(leftArmGp.at<double>(i-1,1));
+	
+		
 	vector<char> SendData;
 	for(int i = 0; i < int(message.size()); i++){
 	  SendData.push_back(message[i]);
