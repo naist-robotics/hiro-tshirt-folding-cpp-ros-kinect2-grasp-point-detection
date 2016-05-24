@@ -54,13 +54,12 @@
 
 #define IPADDRESS "163.221.44.226"
 #define PORTNUM 3794
-/*
+
 //######Kinect Parameters##################
-#define float ku	// width of a pixel
-#define float kv	// hight of a pixel
-#define float f		// focal length
-#define float u0	// Optical centre u coordinate
-#define floar v0	// Optical center v coordinate  */
+#define au 365.97	
+#define av 357.0580	
+#define u0 247	// Optical centre u coordinate
+#define v0 207	// Optical center v coordinate  
 
 using namespace std;
 using namespace cv;
@@ -272,7 +271,12 @@ private:
     bool firstMat = false;
 
     //ソケット通信
+    cv::Mat rightArmGp(4,1,CV_64F);// vector[x,y,z,1] , the one is needed for calculations bellow
+    cv::Mat leftArmGp(4,1,CV_64F);
+
+
     int rightX, rightY, leftX, leftY;
+
 
     cv::namedWindow("Image Viewer");
     oss << "starting...";
@@ -291,7 +295,7 @@ private:
 	//メディアンを用いた平滑化
 	cv::medianBlur(depth, depthM, 3);
 	if(firstMat == false){
-	  cout << "in first ############" << endl;
+	  cout << "in first ######################" << endl;
 	  depth9 = depthM.clone();
 	  depth8 = depthM.clone();
 	  depth7 = depthM.clone();
@@ -331,7 +335,7 @@ private:
         }
 
 	cv::Mat depth_8, depth_canny, can1, can2, can3, can4;
-	depth_8 = Mat::zeros(Size(depth.cols,depth.rows), CV_8U);
+	depth_8 = cv::Mat::zeros(Size(depth.cols,depth.rows), CV_8U);
 	convert16Uto8U(depth, depth_8);
 	//depth.convertTo(depth_8, CV_8U, 0.3);
 	cv::Canny(depth_8, depth_canny, 100, 50);
@@ -340,12 +344,22 @@ private:
 	cv::Canny(depth_8, can3, 100, 40);
 	cv::Canny(depth_8, can4, 100, 50);*/
 
+	cout<<"BEGIN#############################################################"<<endl;
 
-	sidePointDetect(depth_canny, rightX, rightY, leftX, leftY); // (find rightmost and leftmost points (within hard-coded limits) in input matrix)
-	cout << "before adjust data:" << rightX << ", " << rightY << ", " << leftX << ", " << leftY << endl;
-	adjustHIROcoordinate(rightX, rightY, leftX, leftY); // Transformation from Kinect CSYS to HIRO's coordinate system
-	cout << "send data:" << rightX << ", " << rightY << ", " << leftX << ", " << leftY << endl;
+		
+	getSidePoints(depth,depth_canny, rightX, rightY, leftX, leftY,rightArmGp,leftArmGp); // (find rightmost and leftmost points (within hard-coded limits) in input matrix)
 
+	//cout << "before adjust data:" << rightX << ", " << rightY << ", " << leftX << ", " << leftY << endl;
+
+
+
+	adjustHIROcoordinate(rightX, rightY, leftX, leftY,rightArmGp,leftArmGp); // Transformation from Kinect CSYS to HIRO's coordinate system	
+
+	/*cout << "send data:" << rightX << ", " << rightY << ", " << leftX << ", " << leftY << endl;
+	cout << "test after:" <<  endl;
+	cout << "rightArmGp" << rightArmGp.at<double>(0,1) <<","<<rightArmGp.at<double>(1,1) <<","<< rightArmGp.at<double>(2,1)<<","<<  rightArmGp.at<double>(3,1)<<endl;
+	cout << "leftArmGp" << leftArmGp.at<double>(0,1) <<","<<leftArmGp.at<double>(1,1) <<","<< leftArmGp.at<double>(2,1)<<","<<  leftArmGp.at<double>(3,1)<<endl;
+*/
 
 	dispDepth(depth, depthDisp, depthMax, depthMin);
 	//depthMaxCut(depth, depthDisp, depthMax, depthMin);
@@ -539,29 +553,49 @@ private:
     cv::applyColorMap(tmp, out, cv::COLORMAP_JET);
   }
 
- void sidePointDetect(cv::Mat &in, int &rightX, int &rightY, int &leftX, int &leftY)//左右の端点を探索
+ void getSidePoints(cv::Mat depth,cv::Mat &in, int &rightX, int &rightY, int &leftX, int &leftY, cv::Mat &rightArmGp, cv::Mat &leftArmGp)//左右の端点を探索
   {
-    cv::Mat tmp = cv::Mat(in.rows, in.cols, CV_8U);
-    rightX = 500;
-    leftX = 0;
+    	cv::Mat tmp = cv::Mat(in.rows, in.cols, CV_8U);
+    	rightX = 500;
+    	leftX = 0;
 
-    #pragma omp parallel for
-    for(int r = 0; r < in.rows; ++r){
-      uint8_t *itI = in.ptr<uint8_t>(r);
-      for(int c = 0; c < in.cols; ++c, ++itI){
-	if(*itI == 255 && c > 200 && c < 650 && r < 450 && r > 120){
-	  if(rightX > c){
-	    rightX = c; rightY = r;
-	  }
-	  if(leftX < c){
-	    leftX = c; leftY = r;
-	  }
-	}
-      }
-    }
-    cv::circle(in, cv::Point(rightX, rightY), 10, cv::Scalar(200,200,200), 2, 4);
-    cv::circle(in, cv::Point(rightX, rightY), 15, cv::Scalar(200,200,200), 2, 4);
-    cv::circle(in, cv::Point(leftX, leftY), 13, cv::Scalar(160,160,160), 2, 4);
+
+	rightArmGp =Mat::ones(rightArmGp.rows, rightArmGp.cols, CV_64F);//Clear/initialize the vectors
+	leftArmGp  =Mat::ones(leftArmGp.rows, leftArmGp.cols, CV_64F);
+
+
+
+    
+	//Get the coordinate of the two side points in the image coordinate system (unit:pixels)
+    	for(int r = 0; r < in.rows; ++r){
+     		uint8_t *itI = in.ptr<uint8_t>(r);
+		for(int c = 0; c < in.cols; ++c, ++itI){
+			if(*itI == 255 && c > 200 && c < 650 && r < 450 && r > 120){// research window in the depth image
+				if(rightX > c){
+	    				rightX = c; rightY = r;
+
+					rightArmGp.at<double>(-1,1)=r;
+					rightArmGp.at<double>(0,1)=c;
+	  				}
+	  		if(leftX < c){
+	   	 			leftX = c; leftY = r;
+
+					leftArmGp.at<double>(-1,1)=r;
+					leftArmGp.at<double>(0,1)=c;
+	  				}
+			}
+      		}
+    	}
+	
+	//Circle the points in the image
+    	cv::circle(in, cv::Point(rightX, rightY), 10, cv::Scalar(200,200,200), 2, 4);
+    	cv::circle(in, cv::Point(rightX, rightY), 15, cv::Scalar(200,200,200), 2, 4);
+    	cv::circle(in, cv::Point(leftX, leftY), 13, cv::Scalar(160,160,160), 2, 4);
+
+	//Get the corresponding depth for each side points
+	rightArmGp.at<double>(1,1)=depth.at<short>(rightArmGp.at<double>(-1,1),rightArmGp.at<double>(0,1));
+	leftArmGp.at<double>(1,1)=depth.at<short>(leftArmGp.at<double>(-1,1),leftArmGp.at<double>(0,1));
+
   } //左右の端点を探索
 
 // Check for watabe's changes: function not used
@@ -645,7 +679,7 @@ void average10Pictures(const cv::Mat &in0, const cv::Mat &in1, const cv::Mat &in
     }
   }
 
-  void adjustHIROcoordinate(int &rightX, int &rightY, int &leftX, int &leftY){
+  void adjustHIROcoordinate(int &rightX, int &rightY, int &leftX, int &leftY, cv::Mat &rightArmGp,cv::Mat &leftArmGp){
     int rX = rightX, rY = rightY, lX = leftX, lY = leftY;
 
 	rightX = int( ((rY-277)*0.0015 + 0.340)*10000 );
@@ -654,24 +688,47 @@ void average10Pictures(const cv::Mat &in0, const cv::Mat &in1, const cv::Mat &in
 	leftY  = int( ((lX-675)*0.0015 + 0.358)*10000 );
     	//cout << "adjust data:" << rightX << ", " << rightY << ", " << leftX << ", " << leftY << endl;
 
-	
-	//TO DO
-	/*
-		create pcl pcl::rightGP
-		create pcl pcl::rightGP
+	cout<<"IMAGE COORDINATES=========================="<<endl;
+	cout<<"rightArm"<<endl<<rightArmGp<<endl;
+	cout<<"leftArm"<<endl<<leftArmGp<<endl;
+
+    	cv::Mat rightArmGpHIRO=Mat::ones(4,1,CV_64F);
+    	cv::Mat leftArmGpHIRO=Mat::ones(4,1,CV_64F);
+    	
+	//Tranformation from picture to Kinect Coordinate system
+	int z=rightArmGp.at<double>(1,1);
+	rightArmGp.at<double>(-1,1) = z*rightArmGp.at<double>(-1,1)/au - u0*z/au;
+	rightArmGp.at<double>(0,1) = z*rightArmGp.at<double>(0,1)/av - v0*z/av;
+
+	z=leftArmGp.at<double>(1,1);
+	leftArmGp.at<double>(-1,1) = z*leftArmGp.at<double>(-1,1)/au - u0*z/au;
+	leftArmGp.at<double>(0,1) = z*leftArmGp.at<double>(0,1)/av - v0*z/au;
+
+	cout<<"KINECT COORDINATES========================="<<endl;
+	cout<<"rightArm"<<endl<<rightArmGp<<endl;
+	cout<<"leftArm"<<endl<<leftArmGp<<endl;
 
 	
-    //Tranformation from picture to Kinect Coordinate system
-	rightX = int( ku*f*rX/z + u0);
-	rightY = int( kv*f*rY/z + u0);
+	
 
-	leftX = int( ku*f*lX/z + u0);
-	leftY = int( kv*f*lY/z + u0);
-		
 
     //Tranformation from Kinect Coordinate System to HIRo Coordinate system
-	double kinectToHIRO[4][4] = {{a, b, c}, {d, e, f}, {g, h, i}};
-	Mat kinectToHIRO = Mat(4, 4, CV_64F, m); */
+
+	cv::Mat kinectToHIRO =(Mat_<double>(4,4) <<	0.0384,    0.9992,   -0.0055,   -0.0741, 
+							0.9992,   -0.0385,   -0.0108,   -0.5143, 
+							-0.0110,   -0.0050,   -0.9999,   0.7813,
+					     		0 ,          0 ,         0 ,     1.0000	);
+
+
+	rightArmGpHIRO = kinectToHIRO * rightArmGp;
+	leftArmGpHIRO = kinectToHIRO * leftArmGp;
+	
+	cout<<"HIRO COORDINATES========================="<<endl;	
+	cout<<"kinectToHIRO:"<<endl<<kinectToHIRO<<endl;
+	cout<<"rightArmGpHIRO"<<endl<<rightArmGpHIRO<<endl;
+	cout<<"leftArmGpHIRO"<<endl<<leftArmGpHIRO<<endl;
+
+
     
   }
 
