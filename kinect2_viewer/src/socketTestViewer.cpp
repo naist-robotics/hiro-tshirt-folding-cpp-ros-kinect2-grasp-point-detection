@@ -394,8 +394,8 @@ private:
 	//ソケット通信
 	string message = "tech cam3d ";//送信メッセージ
 	message = message + to_string(rightX) + " " + to_string(rightY) + " " + to_string(leftX) + " " + to_string(leftY);
-	for (int i=0;i<rightArmGp.rows;i++) 
-		message=message + " " + to_string(rightArmGp.at<double>(i-1,1))+ " " + to_string(leftArmGp.at<double>(i-1,1));
+	for (int i=0;i<rightArmGp.rows-1;i++) 
+		message=message + " " + to_string((int)rightArmGp.at<double>(i-1,1))+ " " + to_string((int)leftArmGp.at<double>(i-1,1));
 	
 		
 	vector<char> SendData;
