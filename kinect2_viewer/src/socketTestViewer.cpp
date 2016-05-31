@@ -66,8 +66,13 @@ using namespace cv;
 
 TcpClient client;//ソケット通信のクライアント「client」を作成
 
+cv::Mat conversion=(Mat_<double>(4,4) << 	0.001, 0, 0, 0, 
+						0, 0.001, 0, 0, 
+						0, 0, 0.001, 0,
+						0, 0, 0, 1); // conversion from mm to meters
+
 // Limits field of view in depth. Check.
-static const float DEPTHMAX = 740;//深度画像を見やすくする　間隔は60
+static const float DEPTHMAX = 1500;//深度画像を見やすくする　間隔は60
 static const float DEPTHMIN = 680;//750, 690
 
 class Receiver
@@ -267,7 +272,7 @@ private:
     const int lineText = 1;
     const int font = cv::FONT_HERSHEY_SIMPLEX;
     //float depthMax = 780.0f, depthMin = 620.0f;//20160121
-    float depthMax = 743.0f, depthMin = 615.0f;
+    float depthMax = 900.0f, depthMin = 800.0f;
     bool firstMat = false;
 
     //ソケット通信
@@ -704,6 +709,11 @@ void average10Pictures(const cv::Mat &in0, const cv::Mat &in1, const cv::Mat &in
 	leftArmGp.at<double>(-1,1) = z*leftArmGp.at<double>(-1,1)/au - u0*z/au;
 	leftArmGp.at<double>(0,1) = z*leftArmGp.at<double>(0,1)/av - v0*z/au;
 
+	
+	cout<<"conversion:"<<conversion<<endl;
+	rightArmGp=conversion*rightArmGp;
+	leftArmGp=conversion*leftArmGp; // conversion from mm to meters;
+
 	cout<<"KINECT COORDINATES========================="<<endl;
 	cout<<"rightArm"<<endl<<rightArmGp<<endl;
 	cout<<"leftArm"<<endl<<leftArmGp<<endl;
@@ -714,10 +724,10 @@ void average10Pictures(const cv::Mat &in0, const cv::Mat &in1, const cv::Mat &in
 
     //Tranformation from Kinect Coordinate System to HIRo Coordinate system
 
-	cv::Mat kinectToHIRO =(Mat_<double>(4,4) <<	0.0384,    0.9992,   -0.0055,   -0.0741, 
-							0.9992,   -0.0385,   -0.0108,   -0.5143, 
-							-0.0110,   -0.0050,   -0.9999,   0.7813,
-					     		0 ,          0 ,         0 ,     1.0000	);
+	cv::Mat kinectToHIRO =(Mat_<double>(4,4) <<	    0.0696,    0.9974,    0.0161,   -0.1615,
+							    0.9968,   -0.0689,   -0.0400,   -0.4043,
+							   -0.0387,    0.0188,   -0.9991,    1.0000,
+								 0,         0,         0,    1.0000);
 
 
 	rightArmGpHIRO = kinectToHIRO * rightArmGp;
