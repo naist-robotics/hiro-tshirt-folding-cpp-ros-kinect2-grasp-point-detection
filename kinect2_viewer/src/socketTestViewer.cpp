@@ -55,11 +55,11 @@
 #define IPADDRESS "163.221.44.226"
 #define PORTNUM 3794
 
-//######Kinect Parameters##################
-#define au 365.97	
-#define av 357.0580	
-#define u0 247	// Optical centre u coordinate
-#define v0 207	// Optical center v coordinate  
+//######Kinect IR intrinsic parameters##################
+#define au 356.055	// pixels	
+#define av 356.14	
+#define u0 250	// Optical centre u coordinate
+#define v0 204	// Optical center v coordinate  
 
 using namespace std;
 using namespace cv;
@@ -72,8 +72,9 @@ cv::Mat conversion=(Mat_<double>(4,4) << 	0.001, 0, 0, 0,
 						0, 0, 0, 1); // conversion from mm to meters
 
 // Limits field of view in depth. Check.
-static const float DEPTHMAX = 1500;//深度画像を見やすくする　間隔は60
-static const float DEPTHMIN = 680;//750, 690
+static const float DEPTHMAX = 880;//深度画像を見やすくする　間隔は60
+static const float DEPTHMIN = 750;	//CAREFULL: DEPTHMAX-DEPTHMIN<200 otherwise the canny filter won't work
+					//DEPTHMAX-DEPTHMIN=100 is a good choice 
 
 class Receiver
 {
@@ -126,17 +127,17 @@ public:
     : topicColor(topicColor), topicDepth(topicDepth), useExact(useExact), useCompressed(useCompressed),
       updateImage(false), updateCloud(false), save(false), running(false), frame(0), queueSize(5),
       nh("~"), spinner(0), it(nh), mode(CLOUD)
-  {
-    cameraMatrixColor = cv::Mat::zeros(3, 3, CV_64F);
-    cameraMatrixDepth = cv::Mat::zeros(3, 3, CV_64F);
-    params.push_back(cv::IMWRITE_JPEG_QUALITY);
-    params.push_back(100);
-    params.push_back(cv::IMWRITE_PNG_COMPRESSION);
-    params.push_back(1);
-    params.push_back(cv::IMWRITE_PNG_STRATEGY);
-    params.push_back(cv::IMWRITE_PNG_STRATEGY_RLE);
-    params.push_back(0);
-  }
+    {
+      cameraMatrixColor = cv::Mat::zeros(3, 3, CV_64F);
+      cameraMatrixDepth = cv::Mat::zeros(3, 3, CV_64F);
+      params.push_back(cv::IMWRITE_JPEG_QUALITY);
+      params.push_back(100);
+      params.push_back(cv::IMWRITE_PNG_COMPRESSION);
+      params.push_back(1);
+      params.push_back(cv::IMWRITE_PNG_STRATEGY);
+      params.push_back(cv::IMWRITE_PNG_STRATEGY_RLE);
+      params.push_back(0);
+    }
 
   ~Receiver()
   {
@@ -276,8 +277,11 @@ private:
     bool firstMat = false;
 
     //ソケット通信
-    cv::Mat rightArmGp(4,1,CV_64F);// vector[x,y,z,1] , the one is needed for calculations bellow
-    cv::Mat leftArmGp(4,1,CV_64F);
+    cv::Mat rightArmGp=Mat::ones(4 ,1, CV_64F);// vector[x,y,z,1] , the one is needed for calculations below
+    cv::Mat leftArmGp=Mat::ones(4 ,1, CV_64F);
+    cout<<"rightArmGp:["<<rightArmGp.at<double>(-1,1)<<","<<rightArmGp.at<double>(0,1)<<","<<rightArmGp.at<double>(1,1)<<","<<rightArmGp.at<double>(2,1)<<"]"<<endl;
+    cout<<"rightArmGp:["<<rightArmGp.at<double>(-2,1)<<std::endl;
+    cout<<"rightArmGp:["<<rightArmGp.at<double>(3,1)<<std::endl;
 
 
     int rightX, rightY, leftX, leftY;
@@ -343,7 +347,7 @@ private:
 	depth_8 = cv::Mat::zeros(Size(depth.cols,depth.rows), CV_8U);
 	convert16Uto8U(depth, depth_8);
 	//depth.convertTo(depth_8, CV_8U, 0.3);
-	cv::Canny(depth_8, depth_canny, 100, 50);
+	cv::Canny(depth_8, depth_canny, 100,50);
 	/*cv::Canny(depth_8, can1, 100, 20);
 	cv::Canny(depth_8, can2, 100, 30);
 	cv::Canny(depth_8, can3, 100, 40);
@@ -354,10 +358,7 @@ private:
 		
 	getSidePoints(depth,depth_canny, rightX, rightY, leftX, leftY,rightArmGp,leftArmGp); // (find rightmost and leftmost points (within hard-coded limits) in input matrix)
 
-	
-
-
-
+	cout<<"adjust HIRO coordinates"<<endl;
 	adjustHIROcoordinate(rightX, rightY, leftX, leftY,rightArmGp,leftArmGp); // Transformation from Kinect CSYS to HIRO's coordinate system	
 
 	
@@ -400,9 +401,13 @@ private:
 	string message = "tech cam3d ";//送信メッセージ
 	message = message + to_string(rightX) + " " + to_string(rightY) + " " + to_string(leftX) + " " + to_string(leftY);
 	for (int i=0;i<rightArmGp.rows-1;i++) 
-		message=message + " " + to_string((int)rightArmGp.at<double>(i-1,1))+ " " + to_string((int)leftArmGp.at<double>(i-1,1));
+		message=message + " " + to_string(rightArmGp.at<double>(i-1,1))+ " " + to_string(leftArmGp.at<double>(i-1,1));
 	
-		
+	cout<<"COORDINATES TRANSFERT========================="<<endl;	
+	cout<<"rightArmGpHIRO"<<endl<<rightArmGp<<endl;
+	cout<<"leftArmGpHIRO"<<endl<<leftArmGp<<endl;
+	cout<<"message:"<<message<<endl;
+	
 	vector<char> SendData;
 	for(int i = 0; i < int(message.size()); i++){
 	  SendData.push_back(message[i]);
@@ -544,18 +549,18 @@ private:
 
       for(int c = 0; c < in.cols; ++c, ++itI, ++itO)
       {
-	//最小値をいじるんじゃなくてスケールをいじる
-	if(*itI > minValue){
-        //*itO = (uint8_t)std::min((*itI * maxInt / maxValue), 255.0f);
-	*itO = (uint8_t)std::min(( (maxValue - (maxValue - *itI)*(maxValue/(maxValue-minValue))) * maxInt / maxValue), 255.0f);
-	}
-	else{
-	*itO = (uint8_t)0.0f;
-	}
+  	//最小値をいじるんじゃなくてスケールをいじる
+  	if(*itI > minValue){
+          //*itO = (uint8_t)std::min((*itI * maxInt / maxValue), 255.0f);
+  	*itO = (uint8_t)std::min(( (maxValue - (maxValue - *itI)*(maxValue/(maxValue-minValue))) * maxInt / maxValue), 255.0f);
+  	}
+  	else{
+  	*itO = (uint8_t)0.0f;
+  	}
+        }
       }
-    }
 
-    cv::applyColorMap(tmp, out, cv::COLORMAP_JET);
+      cv::applyColorMap(tmp, out, cv::COLORMAP_JET);
   }
 
  void getSidePoints(cv::Mat depth,cv::Mat &in, int &rightX, int &rightY, int &leftX, int &leftY, cv::Mat &rightArmGp, cv::Mat &leftArmGp)//左右の端点を探索
@@ -573,33 +578,41 @@ private:
     
 	//Get the coordinate of the two side points in the image coordinate system (unit:pixels)
     	for(int r = 0; r < in.rows; ++r){
+		//cout<<"R= "<<r<<endl;
      		uint8_t *itI = in.ptr<uint8_t>(r);
 		for(int c = 0; c < in.cols; ++c, ++itI){
+			//if(r==539)			
+			//cout<<"C="<<c<<endl;
 			if(*itI == 255 && c > 200 && c < 650 && r < 450 && r > 120){// research window in the depth image
 				if(rightX > c){
 	    				rightX = c; rightY = r;
-
-					rightArmGp.at<double>(-1,1)=r;
-					rightArmGp.at<double>(0,1)=c;
+					
+					rightArmGp.at<double>(-1,1)=c;
+					rightArmGp.at<double>(0,1)=r;
 	  				}
 	  		if(leftX < c){
 	   	 			leftX = c; leftY = r;
 
-					leftArmGp.at<double>(-1,1)=r;
-					leftArmGp.at<double>(0,1)=c;
+					
+          leftArmGp.at<double>(-1,1)=c;
+					leftArmGp.at<double>(0,1)=r;
+                    
 	  				}
-			}
+
+
       		}
     	}
-	
+			}
+
 	//Circle the points in the image
     	cv::circle(in, cv::Point(rightX, rightY), 10, cv::Scalar(200,200,200), 2, 4);
     	cv::circle(in, cv::Point(rightX, rightY), 15, cv::Scalar(200,200,200), 2, 4);
     	cv::circle(in, cv::Point(leftX, leftY), 13, cv::Scalar(160,160,160), 2, 4);
 
 	//Get the corresponding depth for each side points
-	rightArmGp.at<double>(1,1)=depth.at<short>(rightArmGp.at<double>(-1,1),rightArmGp.at<double>(0,1));
-	leftArmGp.at<double>(1,1)=depth.at<short>(leftArmGp.at<double>(-1,1),leftArmGp.at<double>(0,1));
+  rightArmGp.at<double>(1,1)=depth.at<short>(rightArmGp.at<double>(0,1),rightArmGp.at<double>(-1,1));
+	leftArmGp.at<double>(1,1)=depth.at<short>(leftArmGp.at<double>(0,1),leftArmGp.at<double>(-1,1));
+
 
   } //左右の端点を探索
 
@@ -617,26 +630,26 @@ private:
 
       for(int c = 0; c < in.cols; ++c, ++itI, ++itO)
       {
-	//最小値をいじるんじゃなくてスケールをいじる
-	if(*itI > minValue){
-        //*itO = (uint8_t)std::min((*itI * maxInt / maxValue), 255.0f);
-	*itO = (uint8_t)std::min(( (maxValue - (maxValue - *itI)*(maxValue/(maxValue-minValue))) * maxInt / maxValue), 255.0f);
-	}
-	else{
-	*itO = (uint8_t)0.0f;
-	}
-	if(*itI > maxValue){
-	  *itO = (uint8_t)0.0f;
-	}
+  	//最小値をいじるんじゃなくてスケールをいじる
+  	if(*itI > minValue){
+          //*itO = (uint8_t)std::min((*itI * maxInt / maxValue), 255.0f);
+  	*itO = (uint8_t)std::min(( (maxValue - (maxValue - *itI)*(maxValue/(maxValue-minValue))) * maxInt / maxValue), 255.0f);
+  	}
+  	else{
+  	*itO = (uint8_t)0.0f;
+  	}
+  	if(*itI > maxValue){
+  	  *itO = (uint8_t)0.0f;
+  	}
 
-	if(r == in.rows/2 && c == in.cols/2){
-	  int distance = *itI;
-	  cout << "distance:" << distance << endl;
-	}
+  	if(r == in.rows/2 && c == in.cols/2){
+  	  int distance = *itI;
+  	  cout << "distance:" << distance << endl;
+  	}
+        }
       }
-    }
 
-    cv::applyColorMap(tmp, out, cv::COLORMAP_JET);
+      cv::applyColorMap(tmp, out, cv::COLORMAP_JET);
   }
 
 
@@ -661,25 +674,32 @@ void average10Pictures(const cv::Mat &in0, const cv::Mat &in1, const cv::Mat &in
       uint16_t *itOut = tmp.ptr<uint16_t>(r);
 
       for(int c = 0; c < in0.cols; ++c, ++it0In, ++it1In, ++it2In, ++it3In, ++it4In, ++it5In, ++it6In, ++it7In, ++it8In, ++it9In, ++itOut){
-	*itOut = (*it0In + *it1In + *it2In + *it3In + *it4In + *it5In + *it6In + *it7In + *it8In + *it9In)/10;
+  	*itOut = (*it0In + *it1In + *it2In + *it3In + *it4In + *it5In + *it6In + *it7In + *it8In + *it9In)/10;
+        }
       }
-    }
-    out = tmp;
+      out = tmp;
   }
 
   void convert16Uto8U(const cv::Mat &in1, cv::Mat &out){//16Uのin1を8UのoutにMAXVALUEとMINVALUEに基づいて変換
 
-    for(int r = 0; r < in1.rows; r++){
+    for(int r = 0; r < in1.rows; r++)
+    {
       const uint16_t *it1In = in1.ptr<uint16_t>(r);
       uint8_t *itOut = out.ptr<uint8_t>(r);
-      for(int c = 0; c < in1.cols; c++, it1In++, itOut++){
-	if(*it1In > DEPTHMAX){
-	  *itOut = (uint8_t)255;
-	}else if(*it1In < DEPTHMIN){
-	  *itOut = (uint8_t)0;
-	}else{
-	  *itOut = (uint8_t)std::min((*it1In - DEPTHMIN) * (255/(DEPTHMAX - DEPTHMIN)), 255.0f);//深度の分解能は (DEPTHMAX-DEPTHMIN)/255
-	}
+      for(int c = 0; c < in1.cols; c++, it1In++, itOut++)
+      {
+	         if(*it1In > DEPTHMAX)
+           {
+	             *itOut = (uint8_t)255;
+	         }
+           else if(*it1In < DEPTHMIN)
+           {
+	             *itOut = (uint8_t)0;
+	         }
+           else
+           {
+	             *itOut = (uint8_t)std::min((*it1In - DEPTHMIN) * (255/(DEPTHMAX - DEPTHMIN)), 255.0f);//深度の分解能は (DEPTHMAX-DEPTHMIN)/255
+	         }
       }
     }
   }
@@ -687,6 +707,7 @@ void average10Pictures(const cv::Mat &in0, const cv::Mat &in1, const cv::Mat &in
   void adjustHIROcoordinate(int &rightX, int &rightY, int &leftX, int &leftY, cv::Mat &rightArmGp,cv::Mat &leftArmGp){
     int rX = rightX, rY = rightY, lX = leftX, lY = leftY;
 
+	// Unused (legacy code from watabe)
 	rightX = int( ((rY-277)*0.0015 + 0.340)*10000 );
 	rightY = int( ((rX-285)*0.0015 - 0.358)*10000 );
 	leftX  = int( ((lY-277)*0.0015 + 0.340)*10000 );
@@ -696,21 +717,17 @@ void average10Pictures(const cv::Mat &in0, const cv::Mat &in1, const cv::Mat &in
 	cout<<"IMAGE COORDINATES=========================="<<endl;
 	cout<<"rightArm"<<endl<<rightArmGp<<endl;
 	cout<<"leftArm"<<endl<<leftArmGp<<endl;
-
-    	cv::Mat rightArmGpHIRO=Mat::ones(4,1,CV_64F);
-    	cv::Mat leftArmGpHIRO=Mat::ones(4,1,CV_64F);
     	
-	//Tranformation from picture to Kinect Coordinate system
-	int z=rightArmGp.at<double>(1,1);
+	//Tranformation of x-, y-coordinates from image to 3D Kinect coordinate system
+	int z=rightArmGp.at<double>(1,1);	// Taken from depth sensor
 	rightArmGp.at<double>(-1,1) = z*rightArmGp.at<double>(-1,1)/au - u0*z/au;
 	rightArmGp.at<double>(0,1) = z*rightArmGp.at<double>(0,1)/av - v0*z/av;
 
 	z=leftArmGp.at<double>(1,1);
 	leftArmGp.at<double>(-1,1) = z*leftArmGp.at<double>(-1,1)/au - u0*z/au;
-	leftArmGp.at<double>(0,1) = z*leftArmGp.at<double>(0,1)/av - v0*z/au;
+	leftArmGp.at<double>(0,1) = z*leftArmGp.at<double>(0,1)/av - v0*z/av;
 
 	
-	cout<<"conversion:"<<conversion<<endl;
 	rightArmGp=conversion*rightArmGp;
 	leftArmGp=conversion*leftArmGp; // conversion from mm to meters;
 
@@ -730,13 +747,13 @@ void average10Pictures(const cv::Mat &in0, const cv::Mat &in1, const cv::Mat &in
 								 0,         0,         0,    1.0000);
 
 
-	rightArmGpHIRO = kinectToHIRO * rightArmGp;
-	leftArmGpHIRO = kinectToHIRO * leftArmGp;
+	rightArmGp = kinectToHIRO * rightArmGp;
+	leftArmGp = kinectToHIRO * leftArmGp;
 	
 	cout<<"HIRO COORDINATES========================="<<endl;	
-	cout<<"kinectToHIRO:"<<endl<<kinectToHIRO<<endl;
-	cout<<"rightArmGpHIRO"<<endl<<rightArmGpHIRO<<endl;
-	cout<<"leftArmGpHIRO"<<endl<<leftArmGpHIRO<<endl;
+	//cout<<"kinectToHIRO:"<<endl<<kinectToHIRO<<endl;
+	cout<<"rightArmGpHIRO"<<endl<<rightArmGp<<endl;
+	cout<<"leftArmGpHIRO"<<endl<<leftArmGp<<endl;
 
 
     
