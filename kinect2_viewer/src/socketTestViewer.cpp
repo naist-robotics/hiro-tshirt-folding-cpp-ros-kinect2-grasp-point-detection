@@ -65,8 +65,6 @@
 #define u0 468.7	// Optical centre u coordinate
 #define v0 259.8	 // Optical center v coordinate  
 
-
-
 using namespace std;
 using namespace cv;
 
@@ -751,10 +749,10 @@ void adjustHIROcoordinate(int &rightX, int &rightY, int &leftX, int &leftY, cv::
 
     //Tranformation from Kinect Coordinate System to HIRo Coordinate system
 
-	cv::Mat kinectToHIRO =(Mat_<double>(4,4) <<	    0.0696,    -0.9974,    0.0161,   0.53,
-							    					-0.9968,   -0.0689,   -0.0400,   -0.1,
-							   						-0.0387,    0.0188,   -0.9991,    0.85,
-								 						0,         0,         0,    1.0000);
+	cv::Mat kinectToHIRO =(Mat_<double>(4,4) <<	      	   -0.0830,   -0.9965,   -0.0109,    0.4416,
+   -0.9965,    0.0829,    0.0070,    0.1177,
+   -0.0061,    0.0114,   -0.9999,    0.9961,
+         0,         0,         0,    1.0000);
 
 
 	rightArmGp = kinectToHIRO * rightArmGp;
