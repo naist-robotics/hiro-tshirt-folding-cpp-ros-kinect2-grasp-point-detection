@@ -56,10 +56,16 @@
 #define PORTNUM 3794
 
 //######Kinect IR intrinsic parameters##################
-#define au 356.055	// pixels	
-#define av 356.14	
-#define u0 250	// Optical centre u coordinate
-#define v0 204	// Optical center v coordinate  
+//#define au 356.055 * 960/512	// pixels	
+//#define av 356.14 * 540/424	
+//#define u0 250 * 960/512	// Optical centre u coordinate
+//#define v0 204 * 540/424	 // Optical center v coordinate  
+#define au 667.6	// pixels	
+#define av 453.6
+#define u0 468.7	// Optical centre u coordinate
+#define v0 259.8	 // Optical center v coordinate  
+
+
 
 using namespace std;
 using namespace cv;
@@ -67,9 +73,9 @@ using namespace cv;
 TcpClient client;//ソケット通信のクライアント「client」を作成
 
 cv::Mat conversion=(Mat_<double>(4,4) << 	0.001, 0, 0, 0, 
-						0, 0.001, 0, 0, 
-						0, 0, 0.001, 0,
-						0, 0, 0, 1); // conversion from mm to meters
+											0, 0.001, 0, 0, 
+											0, 0, 0.001, 0,
+											0, 0, 0, 1); // conversion from mm to meters
 
 // Limits field of view in depth. Check.
 static const float DEPTHMAX = 880;//深度画像を見やすくする　間隔は60
@@ -150,7 +156,7 @@ public:
   }
 
 private:
-  void start(const Mode mode)
+void start(const Mode mode)
   {
     this->mode = mode;
     running = true;
@@ -208,7 +214,7 @@ private:
     }
   }
 
-  void stop()
+void stop()
   {
     spinner.stop();
 
@@ -233,9 +239,9 @@ private:
     }
   }
 
-  void callback(const sensor_msgs::Image::ConstPtr imageColor, const sensor_msgs::Image::ConstPtr imageDepth,
+void callback(const sensor_msgs::Image::ConstPtr imageColor, const sensor_msgs::Image::ConstPtr imageDepth,
                 const sensor_msgs::CameraInfo::ConstPtr cameraInfoColor, const sensor_msgs::CameraInfo::ConstPtr cameraInfoDepth)
-  {
+{
     cv::Mat color, depth;
 
     readCameraInfo(cameraInfoColor, cameraMatrixColor);
@@ -257,9 +263,9 @@ private:
     updateImage = true;
     updateCloud = true;
     lock.unlock();
-  }
+}
 
-  void imageViewer()
+void imageViewer()
   {
     cv::Mat color, depth, depthDisp, combined;
     cv::Mat depth0, depth1, depth2, depth3, depth4, depth5, depth6, depth7, depth8, depth9, depthM;
@@ -452,7 +458,7 @@ private:
   }
 
 
-  void cloudViewer()
+void cloudViewer()
   {
     cv::Mat color, depth;
     pcl::visualization::PCLVisualizer::Ptr visualizer(new pcl::visualization::PCLVisualizer("Cloud Viewer"));
@@ -502,7 +508,7 @@ private:
     visualizer->close();
   }
 
-  void keyboardEvent(const pcl::visualization::KeyboardEvent &event, void *)
+void keyboardEvent(const pcl::visualization::KeyboardEvent &event, void *)
   {
     if(event.keyUp())
     {
@@ -520,14 +526,14 @@ private:
     }
   }
 
-  void readImage(const sensor_msgs::Image::ConstPtr msgImage, cv::Mat &image) const
+void readImage(const sensor_msgs::Image::ConstPtr msgImage, cv::Mat &image) const
   {
     cv_bridge::CvImageConstPtr pCvImage;
     pCvImage = cv_bridge::toCvShare(msgImage, msgImage->encoding);
     pCvImage->image.copyTo(image);
   }
 
-  void readCameraInfo(const sensor_msgs::CameraInfo::ConstPtr cameraInfo, cv::Mat &cameraMatrix) const
+void readCameraInfo(const sensor_msgs::CameraInfo::ConstPtr cameraInfo, cv::Mat &cameraMatrix) const
   {
     double *itC = cameraMatrix.ptr<double>(0, 0);
     for(size_t i = 0; i < 9; ++i, ++itC)
@@ -536,7 +542,7 @@ private:
     }
   }
 
-  void dispDepth(const cv::Mat &in, cv::Mat &out, const float maxValue, const float minValue = 500.0f)
+void dispDepth(const cv::Mat &in, cv::Mat &out, const float maxValue, const float minValue = 500.0f)
   {
     cv::Mat tmp = cv::Mat(in.rows, in.cols, CV_8U);
     const uint32_t maxInt = 255;
@@ -563,7 +569,7 @@ private:
       cv::applyColorMap(tmp, out, cv::COLORMAP_JET);
   }
 
- void getSidePoints(cv::Mat depth,cv::Mat &in, int &rightX, int &rightY, int &leftX, int &leftY, cv::Mat &rightArmGp, cv::Mat &leftArmGp)//左右の端点を探索
+  void getSidePoints(cv::Mat depth,cv::Mat &in, int &rightX, int &rightY, int &leftX, int &leftY, cv::Mat &rightArmGp, cv::Mat &leftArmGp)//左右の端点を探索
   {
     	cv::Mat tmp = cv::Mat(in.rows, in.cols, CV_8U);
     	rightX = 500;
@@ -652,9 +658,9 @@ private:
       cv::applyColorMap(tmp, out, cv::COLORMAP_JET);
   }
 
-
 void average10Pictures(const cv::Mat &in0, const cv::Mat &in1, const cv::Mat &in2, const cv::Mat &in3, const cv::Mat &in4, const cv::Mat &in5,
-			 const cv::Mat &in6, const cv::Mat &in7, const cv::Mat &in8, const cv::Mat &in9, cv::Mat &out){//画像10個の平均を出力
+			 const cv::Mat &in6, const cv::Mat &in7, const cv::Mat &in8, const cv::Mat &in9, cv::Mat &out)
+{//画像10個の平均を出力
 	///////////////////////////////////////////////////////////////////////////////////////////////////////////////
     //オリジナルのdepthはCV_16U
     cv::Mat tmp = cv::Mat(in0.rows, in0.cols, CV_16U);//一旦tmpに入れて最後にoutに入れる
@@ -678,9 +684,9 @@ void average10Pictures(const cv::Mat &in0, const cv::Mat &in1, const cv::Mat &in
         }
       }
       out = tmp;
-  }
+}
 
-  void convert16Uto8U(const cv::Mat &in1, cv::Mat &out){//16Uのin1を8UのoutにMAXVALUEとMINVALUEに基づいて変換
+void convert16Uto8U(const cv::Mat &in1, cv::Mat &out){//16Uのin1を8UのoutにMAXVALUEとMINVALUEに基づいて変換
 
     for(int r = 0; r < in1.rows; r++)
     {
@@ -704,7 +710,7 @@ void average10Pictures(const cv::Mat &in0, const cv::Mat &in1, const cv::Mat &in
     }
   }
 
-  void adjustHIROcoordinate(int &rightX, int &rightY, int &leftX, int &leftY, cv::Mat &rightArmGp,cv::Mat &leftArmGp){
+void adjustHIROcoordinate(int &rightX, int &rightY, int &leftX, int &leftY, cv::Mat &rightArmGp,cv::Mat &leftArmGp){
     int rX = rightX, rY = rightY, lX = leftX, lY = leftY;
 
 	// Unused (legacy code from watabe)
@@ -717,15 +723,19 @@ void average10Pictures(const cv::Mat &in0, const cv::Mat &in1, const cv::Mat &in
 	cout<<"IMAGE COORDINATES=========================="<<endl;
 	cout<<"rightArm"<<endl<<rightArmGp<<endl;
 	cout<<"leftArm"<<endl<<leftArmGp<<endl;
-    	
-	//Tranformation of x-, y-coordinates from image to 3D Kinect coordinate system
-	int z=rightArmGp.at<double>(1,1);	// Taken from depth sensor
-	rightArmGp.at<double>(-1,1) = z*rightArmGp.at<double>(-1,1)/au - u0*z/au;
-	rightArmGp.at<double>(0,1) = z*rightArmGp.at<double>(0,1)/av - v0*z/av;
+
+	//Tranformation of pixel coordinatesa to 3D x-, y-coordinates in 3D Kinect coordinate system
+	double z=rightArmGp.at<double>(1,1);	// Taken from depth sensor
+		cout<<"Param intrinseques: "<<au<<","<<av<<", "<<u0<<","<<v0<<endl;
+	rightArmGp.at<double>(-1,1) = ( (-z/au) *(rightArmGp.at<double>(-1,1)- u0) );
+	rightArmGp.at<double>(0,1) = ( (-z/av)*(rightArmGp.at<double>(0,1) - v0) );
 
 	z=leftArmGp.at<double>(1,1);
-	leftArmGp.at<double>(-1,1) = z*leftArmGp.at<double>(-1,1)/au - u0*z/au;
-	leftArmGp.at<double>(0,1) = z*leftArmGp.at<double>(0,1)/av - v0*z/av;
+	cout<<"Test calcul: "<< z<<endl;
+	cout<<"Test calcul: "<< (-z/au)<<endl;
+	cout<<"Test calcul: "<< leftArmGp.at<double>(-1,1) - u0 <<endl;
+	leftArmGp.at<double>(-1,1) = ( (-z/au) *(leftArmGp.at<double>(-1,1) - u0) );
+	leftArmGp.at<double>(0,1) = ( (-z/av)*(leftArmGp.at<double>(0,1) - v0) );
 
 	
 	rightArmGp=conversion*rightArmGp;
@@ -741,10 +751,10 @@ void average10Pictures(const cv::Mat &in0, const cv::Mat &in1, const cv::Mat &in
 
     //Tranformation from Kinect Coordinate System to HIRo Coordinate system
 
-	cv::Mat kinectToHIRO =(Mat_<double>(4,4) <<	    0.0696,    0.9974,    0.0161,   -0.1615,
-							    0.9968,   -0.0689,   -0.0400,   -0.4043,
-							   -0.0387,    0.0188,   -0.9991,    1.0000,
-								 0,         0,         0,    1.0000);
+	cv::Mat kinectToHIRO =(Mat_<double>(4,4) <<	    0.0696,    -0.9974,    0.0161,   0.53,
+							    					-0.9968,   -0.0689,   -0.0400,   -0.1,
+							   						-0.0387,    0.0188,   -0.9991,    0.85,
+								 						0,         0,         0,    1.0000);
 
 
 	rightArmGp = kinectToHIRO * rightArmGp;
