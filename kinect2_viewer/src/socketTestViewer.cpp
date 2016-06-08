@@ -79,8 +79,6 @@
 using namespace std;
 using namespace cv;
 
-TcpClient client;//ソケット通信のクライアント「client」を作成
-
 cv::Mat conversion=(Mat_<double>(4,4) << 	0.001, 0, 0, 0, 
 											0, 0.001, 0, 0, 
 											0, 0, 0.001, 0,
@@ -102,6 +100,8 @@ class Receiver
 	  };
 
 	private:
+	  TcpClient* client;//ソケット通信のクライアント「client」を作成
+
 	  std::mutex lock;
 
 	  const std::string topicColor, topicDepth;
@@ -152,6 +152,9 @@ class Receiver
 	      params.push_back(cv::IMWRITE_PNG_STRATEGY);
 	      params.push_back(cv::IMWRITE_PNG_STRATEGY_RLE);
 	      params.push_back(0);
+	      // Init communication
+	      this->client = new TcpClient;
+		  client->Init(IPADDRESS, PORTNUM);
 	    }
 
 	  ~Receiver()
@@ -165,10 +168,21 @@ class Receiver
 	  }
 
 	private:
+	bool reconnectSocket(){
+
+		delete client;
+		std::chrono::milliseconds duration(1500);
+	    std::this_thread::sleep_for(duration);
+		this->client = new TcpClient;
+		return client->Init(IPADDRESS, PORTNUM);
+
+	}
+
 	void start(const Mode mode)
 	  {
 	    this->mode = mode;
 	    running = true;
+
 
 	    std::string topicCameraInfoColor = topicColor.substr(0, topicColor.rfind('/')) + "/camera_info";
 	    std::string topicCameraInfoDepth = topicDepth.substr(0, topicDepth.rfind('/')) + "/camera_info";
@@ -426,19 +440,29 @@ class Receiver
 		vector<char> SendData;
 		for(int i = 0; i < int(message.size()); i++){
 		  SendData.push_back(message[i]);
-		}	
-		client.Write(SendData);//送信
-		for(int i = 0; i < int(SendData.size()); i++){
-		  cout << SendData[i];
 		}
+		int sendSuccess = client->Write(SendData);//送信
+		cout<<"sendSuccess:"<<sendSuccess<<endl;
+		for(int i = 0; i < int(SendData.size()); i++){
+		  cout << SendData[i] ;
+		}
+		cout<<endl;
 		SendData.clear();
 
 		//readしないと通信がうまく行かない
+
 		vector<char> ReadData;
-		char nSend = client.Read(ReadData);
+		char nSend = client->Read(ReadData);
 		cout << "read:" << nSend << endl;
 		//ここまでソケット通信
 		
+		if ((sendSuccess)<=0){
+		 	std::cout << "Trying to reconnect. flag: " << sendSuccess << std::endl;
+		 	reconnectSocket();
+
+		 }
+
+
 	      }
 
 	      int key = cv::waitKey(1);
@@ -460,7 +484,7 @@ class Receiver
 	          save = true;
 	        }
 	        break;
-	      }
+	       }
 	    }
 	    cv::destroyAllWindows();
 	    cv::waitKey(100);
@@ -911,10 +935,11 @@ int main(int argc, char **argv)
   {
     return 0;
   }
-  //ソケット通信Socket connection
-  string LOCALHOST = IPADDRESS;
-  int PORT = PORTNUM;
-  client.Init(LOCALHOST, PORT);
+  // //ソケット通信Socket connection
+  // string LOCALHOST = IPADDRESS;
+  // int PORT = PORTNUM;
+  // client->Init(LOCALHOST, PORT);
+  ////// Socket connection is now part of the class.
 
 
 
@@ -924,6 +949,7 @@ int main(int argc, char **argv)
   bool useExact = true;
   bool useCompressed = false;
   Receiver::Mode mode = Receiver::CLOUD;
+
 
   for(size_t i = 1; i < (size_t)argc; ++i)
   {
@@ -988,6 +1014,7 @@ int main(int argc, char **argv)
   OUT_INFO("topic depth: " FG_CYAN << topicDepth << NO_COLOR);
 
   Receiver receiver(topicColor, topicDepth, useExact, useCompressed);
+
 
   OUT_INFO("starting receiver...");
   receiver.run(mode);
