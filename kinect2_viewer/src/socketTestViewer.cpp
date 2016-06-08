@@ -25,6 +25,7 @@
 #include <mutex>
 #include <thread>
 #include <chrono>
+ #include <queue>
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -168,74 +169,73 @@ class Receiver
 	  }
 
 	private:
-	bool reconnectSocket(){
+		bool reconnectSocket(){
 
-		delete client;
-		std::chrono::milliseconds duration(1500);
-	    std::this_thread::sleep_for(duration);
-		this->client = new TcpClient;
-		return client->Init(IPADDRESS, PORTNUM);
+			delete client;
+			std::chrono::milliseconds duration(1500);
+		    std::this_thread::sleep_for(duration);
+			this->client = new TcpClient;
+			return client->Init(IPADDRESS, PORTNUM);
 
-	}
+		}
 
-	void start(const Mode mode)
-	  {
-	    this->mode = mode;
-	    running = true;
+		void start(const Mode mode){
+		    this->mode = mode;
+		    running = true;
 
 
-	    std::string topicCameraInfoColor = topicColor.substr(0, topicColor.rfind('/')) + "/camera_info";
-	    std::string topicCameraInfoDepth = topicDepth.substr(0, topicDepth.rfind('/')) + "/camera_info";
+		    std::string topicCameraInfoColor = topicColor.substr(0, topicColor.rfind('/')) + "/camera_info";
+		    std::string topicCameraInfoDepth = topicDepth.substr(0, topicDepth.rfind('/')) + "/camera_info";
 
-	    image_transport::TransportHints hints(useCompressed ? "compressed" : "raw");
-	    subImageColor = new image_transport::SubscriberFilter(it, topicColor, queueSize, hints);
-	    subImageDepth = new image_transport::SubscriberFilter(it, topicDepth, queueSize, hints);
-	    subCameraInfoColor = new message_filters::Subscriber<sensor_msgs::CameraInfo>(nh, topicCameraInfoColor, queueSize);
-	    subCameraInfoDepth = new message_filters::Subscriber<sensor_msgs::CameraInfo>(nh, topicCameraInfoDepth, queueSize);
+		    image_transport::TransportHints hints(useCompressed ? "compressed" : "raw");
+		    subImageColor = new image_transport::SubscriberFilter(it, topicColor, queueSize, hints);
+		    subImageDepth = new image_transport::SubscriberFilter(it, topicDepth, queueSize, hints);
+		    subCameraInfoColor = new message_filters::Subscriber<sensor_msgs::CameraInfo>(nh, topicCameraInfoColor, queueSize);
+		    subCameraInfoDepth = new message_filters::Subscriber<sensor_msgs::CameraInfo>(nh, topicCameraInfoDepth, queueSize);
 
-	    if(useExact)
-	    {
-	      syncExact = new message_filters::Synchronizer<ExactSyncPolicy>(ExactSyncPolicy(queueSize), *subImageColor, *subImageDepth, *subCameraInfoColor, *subCameraInfoDepth);
-	      syncExact->registerCallback(boost::bind(&Receiver::callback, this, _1, _2, _3, _4));
-	    }
-	    else
-	    {
-	      syncApproximate = new message_filters::Synchronizer<ApproximateSyncPolicy>(ApproximateSyncPolicy(queueSize), *subImageColor, *subImageDepth, *subCameraInfoColor, *subCameraInfoDepth);
-	      syncApproximate->registerCallback(boost::bind(&Receiver::callback, this, _1, _2, _3, _4));
-	    }
+		    if(useExact)
+		    {
+		      syncExact = new message_filters::Synchronizer<ExactSyncPolicy>(ExactSyncPolicy(queueSize), *subImageColor, *subImageDepth, *subCameraInfoColor, *subCameraInfoDepth);
+		      syncExact->registerCallback(boost::bind(&Receiver::callback, this, _1, _2, _3, _4));
+		    }
+		    else
+		    {
+		      syncApproximate = new message_filters::Synchronizer<ApproximateSyncPolicy>(ApproximateSyncPolicy(queueSize), *subImageColor, *subImageDepth, *subCameraInfoColor, *subCameraInfoDepth);
+		      syncApproximate->registerCallback(boost::bind(&Receiver::callback, this, _1, _2, _3, _4));
+		    }
 
-	    spinner.start();
+		    spinner.start();
 
-	    std::chrono::milliseconds duration(1);
-	    while(!updateImage || !updateCloud)
-	    {
-	      if(!ros::ok())
-	      {
-	        return;
-	      }
-	      std::this_thread::sleep_for(duration);
-	    }
-	    cloud = pcl::PointCloud<pcl::PointXYZRGBA>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBA>());
-	    cloud->height = color.rows;
-	    cloud->width = color.cols;
-	    cloud->is_dense = false;
-	    cloud->points.resize(cloud->height * cloud->width);
-	    createLookup(this->color.cols, this->color.rows);
+		    std::chrono::milliseconds duration(1);
+		    while(!updateImage || !updateCloud)
+		    {
+		      if(!ros::ok())
+		      {
+		        return;
+		      }
+		      std::this_thread::sleep_for(duration);
+		    }
+		    cloud = pcl::PointCloud<pcl::PointXYZRGBA>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBA>());
+		    cloud->height = color.rows;
+		    cloud->width = color.cols;
+		    cloud->is_dense = false;
+		    cloud->points.resize(cloud->height * cloud->width);
+		    createLookup(this->color.cols, this->color.rows);
 
-	    switch(mode)
-	    {
-	    case CLOUD:
-	      cloudViewer();
-	      break;
-	    case IMAGE:
-	      imageViewer();
-	      break;
-	    case BOTH:
-	      imageViewerThread = std::thread(&Receiver::imageViewer, this);
-	      cloudViewer();
-	      break;
-	    }
-	  }
+		    switch(mode)
+		    {
+		    case CLOUD:
+		      cloudViewer();
+		      break;
+		    case IMAGE:
+		      imageViewer();
+		      break;
+		    case BOTH:
+		      imageViewerThread = std::thread(&Receiver::imageViewer, this);
+		      cloudViewer();
+		      break;
+		    }
+		}
 
 	void stop()
 	  {
@@ -288,10 +288,13 @@ class Receiver
 	    lock.unlock();
 	}
 
-	void imageViewer()
+void imageViewer()
 	  {
 	    cv::Mat color, depth, depthDisp, combined;
-	    cv::Mat depth0, depth1, depth2, depth3, depth4, depth5, depth6, depth7, depth8, depth9, depthM;
+	    cv::Mat depthM;
+
+	    queue<cv::Mat> depthQueue;
+
 	    std::chrono::time_point<std::chrono::high_resolution_clock> start, now;
 	    double fps = 0;
 	    size_t frameCount = 0;
@@ -301,16 +304,17 @@ class Receiver
 	    const double sizeText = 0.5;
 	    const int lineText = 1;
 	    const int font = cv::FONT_HERSHEY_SIMPLEX;
+	    const int SIZE_DEPTH_QUEUE = 10;
 	    //float depthMax = 780.0f, depthMin = 620.0f;//20160121
 	    float depthMax = 900.0f, depthMin = 800.0f;
-	    bool firstMat = false;
 
 	    //ソケット通信
 	    cv::Mat rightArmGp=Mat::ones(4 ,1, CV_64F);// vector[x,y,z,1] , the one is needed for calculations below
 	    cv::Mat leftArmGp=Mat::ones(4 ,1, CV_64F);
-	    cout<<"rightArmGp:["<<rightArmGp.at<double>(-1,1)<<","<<rightArmGp.at<double>(0,1)<<","<<rightArmGp.at<double>(1,1)<<","<<rightArmGp.at<double>(2,1)<<"]"<<endl;
-	    cout<<"rightArmGp:["<<rightArmGp.at<double>(-2,1)<<std::endl;
-	    cout<<"rightArmGp:["<<rightArmGp.at<double>(3,1)<<std::endl;
+
+	    // cout<<"rightArmGp:["<<rightArmGp.at<double>(-1,1)<<","<<rightArmGp.at<double>(0,1)<<","<<rightArmGp.at<double>(1,1)<<","<<rightArmGp.at<double>(2,1)<<"]"<<endl;
+	    // cout<<"rightArmGp:["<<rightArmGp.at<double>(-2,1)<<std::endl;
+	    // cout<<"rightArmGp:["<<rightArmGp.at<double>(3,1)<<std::endl;
 
 
 	    int rightX, rightY, leftX, leftY;
@@ -330,35 +334,22 @@ class Receiver
 	        updateImage = false;
 	        lock.unlock();
 
-		//メディアンを用いた平滑化
-		cv::medianBlur(depth, depthM, 3);
-		if(firstMat == false){
-		  cout << "in first ######################" << endl;
-		  depth9 = depthM.clone();
-		  depth8 = depthM.clone();
-		  depth7 = depthM.clone();
-		  depth6 = depthM.clone();
-		  depth5 = depthM.clone();
-		  depth4 = depthM.clone();
-		  depth3 = depthM.clone();
-		  depth2 = depthM.clone();
-		  depth1 = depthM.clone();
-		  depth0 = depthM.clone();
-		  firstMat = true;
-		}
-		depth9 = depth8.clone();
-		depth8 = depth7.clone();
-		depth7 = depth6.clone();
-		depth6 = depth5.clone();
-		depth5 = depth4.clone();
-		depth4 = depth3.clone();
-		depth3 = depth2.clone();
-		depth2 = depth1.clone();
-		depth1 = depth0.clone();
-		depth0 = depthM.clone();
-		average10Pictures(depth0, depth1, depth2, depth3, depth4, depth5, depth6, depth7, depth8, depth9, depthM);
+			//メディアンを用いた平滑化
+			cv::medianBlur(depth, depthM, 3);
+			if(depthQueue.size()<SIZE_DEPTH_QUEUE){
+			  cout << "Filling Image Buffer:" << endl;
+			  depthQueue.push(depth);
 
-		medianBlur(depthM, depth, 3);
+			}
+			else{
+					depthQueue.pop();
+					depthQueue.push(depth);
+			}
+			
+
+			depthM=averagePictures(depthQueue);
+
+			medianBlur(depthM, depth, 3);
 
 	        ++frameCount;
 	        now = std::chrono::high_resolution_clock::now();
@@ -372,97 +363,96 @@ class Receiver
 	          frameCount = 0;
 	        }
 
-		cv::Mat depth_8, depth_canny, can1, can2, can3, can4;
-		depth_8 = cv::Mat::zeros(Size(depth.cols,depth.rows), CV_8U);
-		convert16Uto8U(depth, depth_8);
-		//depth.convertTo(depth_8, CV_8U, 0.3);
-		cv::Canny(depth_8, depth_canny, 100,50);
-		/*cv::Canny(depth_8, can1, 100, 20);
-		cv::Canny(depth_8, can2, 100, 30);
-		cv::Canny(depth_8, can3, 100, 40);
-		cv::Canny(depth_8, can4, 100, 50);*/
+			cv::Mat depth_8, depth_canny, can1, can2, can3, can4;
+			depth_8 = cv::Mat::zeros(Size(depth.cols,depth.rows), CV_8U);
+			convert16Uto8U(depth, depth_8);
+			//depth.convertTo(depth_8, CV_8U, 0.3);
+			cv::Canny(depth_8, depth_canny, 100,50);
+			/*cv::Canny(depth_8, can1, 100, 20);
+			cv::Canny(depth_8, can2, 100, 30);
+			cv::Canny(depth_8, can3, 100, 40);
+			cv::Canny(depth_8, can4, 100, 50);*/
 
-		cout<<"BEGIN#############################################################"<<endl;
+			cout<<"BEGIN#############################################################"<<endl;
+
+				
+			getSidePoints(depth,depth_canny, rightX, rightY, leftX, leftY,rightArmGp,leftArmGp); // (find rightmost and leftmost points (within hard-coded limits) in input matrix)
+
+			cout<<"adjust HIRO coordinates"<<endl;
+			adjustHIROcoordinate(rightX, rightY, leftX, leftY,rightArmGp,leftArmGp); // Transformation from Kinect CSYS to HIRO's coordinate system	
 
 			
-		getSidePoints(depth,depth_canny, rightX, rightY, leftX, leftY,rightArmGp,leftArmGp); // (find rightmost and leftmost points (within hard-coded limits) in input matrix)
 
-		cout<<"adjust HIRO coordinates"<<endl;
-		adjustHIROcoordinate(rightX, rightY, leftX, leftY,rightArmGp,leftArmGp); // Transformation from Kinect CSYS to HIRO's coordinate system	
+			dispDepth(depth, depthDisp, depthMax, depthMin);
+			//depthMaxCut(depth, depthDisp, depthMax, depthMin);
+		        combine(color, depthDisp, combined);
+		        //combined = color;
 
+		        cv::putText(combined, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
+		        //cv::imshow("Image Viewer", combined);
+
+			//cout << "depth.rows:" << depth.rows << "   depth.cols" << depth.cols << endl;
+			line(depthDisp, Point(depthDisp.cols/2, 0), Point(depthDisp.cols/2, depthDisp.rows), Scalar(255,255,255), 1, 4);
+			line(depthDisp, Point(depthDisp.cols/2-155, 0), Point(depthDisp.cols/2-155, depthDisp.rows), Scalar(255,255,255), 1, 4);
+			line(depthDisp, Point(depthDisp.cols/2+155, 0), Point(depthDisp.cols/2+155, depthDisp.rows), Scalar(255,255,255), 1, 4);
+			line(depthDisp, Point(depthDisp.cols/2-200, 0), Point(depthDisp.cols/2-200, depthDisp.rows), Scalar(255,255,255), 1, 4);
+			line(depthDisp, Point(depthDisp.cols/2+200, 0), Point(depthDisp.cols/2+200, depthDisp.rows), Scalar(255,255,255), 1, 4);
+			//横は200で30cm相当
+			line(depthDisp, Point(0, depthDisp.rows/2), Point(depthDisp.cols, depthDisp.rows/2), Scalar(255,255,255), 1, 4);
+			line(depthDisp, Point(0, depthDisp.rows/2-100), Point(depthDisp.cols, depthDisp.rows/2-100), Scalar(255,255,255), 1, 4);
+			line(depthDisp, Point(0, depthDisp.rows/2-50), Point(depthDisp.cols, depthDisp.rows/2-50), Scalar(255,255,255), 1, 4);
+			//縦は100で15.3cm相当
+			//281:281
+			//エッジの端点を探す範囲
+			line(depthDisp, Point(150, 0), Point(150, depthDisp.rows), Scalar(155,155,155), 1, 4);
+			line(depthDisp, Point(810, 0), Point(810, depthDisp.rows), Scalar(155,155,155), 1, 4);
+			line(depthDisp, Point(0, 520), Point(depthDisp.cols, 520), Scalar(155,155,155), 1, 4);
+			line(depthDisp, Point(0, 100), Point(depthDisp.cols, 100), Scalar(155,155,155), 1, 4);
+
+			//cv::imshow("detph_8", depth_8);
+			cv::imshow("depth viewer", depthDisp);
+			cv::imshow("canny edge", depth_canny);
+			//cv::imshow("can1", can1);
+			//cv::imshow("can2", can2);
+			//cv::imshow("can3", can3);
+			//cv::imshow("can4", can4);
+
+			//ソケット通信
+			string message = "tech cam3d ";//送信メッセージ
+			message = message + to_string(rightX) + " " + to_string(rightY) + " " + to_string(leftX) + " " + to_string(leftY);
+			for (int i=0;i<rightArmGp.rows-1;i++) 
+				message=message + " " + to_string(rightArmGp.at<double>(i-1,1))+ " " + to_string(leftArmGp.at<double>(i-1,1));
+			
+			cout<<"COORDINATES TRANSFERT========================="<<endl;	
+			cout<<"rightArmGpHIRO"<<endl<<rightArmGp<<endl;
+			cout<<"leftArmGpHIRO"<<endl<<leftArmGp<<endl;
+			cout<<"message:"<<message<<endl;
 		
+			vector<char> SendData;
+			for(int i = 0; i < int(message.size()); i++){
+			  SendData.push_back(message[i]);
+			}
+			int sendSuccess = client->Write(SendData);//送信
+			cout<<"sendSuccess:"<<sendSuccess<<endl;
+			for(int i = 0; i < int(SendData.size()); i++){
+			  cout << SendData[i] ;
+			}
+			cout<<endl;
+			SendData.clear();
 
-		dispDepth(depth, depthDisp, depthMax, depthMin);
-		//depthMaxCut(depth, depthDisp, depthMax, depthMin);
-	        combine(color, depthDisp, combined);
-	        //combined = color;
+			//readしないと通信がうまく行かない
 
-	        cv::putText(combined, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
-	        //cv::imshow("Image Viewer", combined);
-
-		//cout << "depth.rows:" << depth.rows << "   depth.cols" << depth.cols << endl;
-		line(depthDisp, Point(depthDisp.cols/2, 0), Point(depthDisp.cols/2, depthDisp.rows), Scalar(255,255,255), 1, 4);
-		line(depthDisp, Point(depthDisp.cols/2-155, 0), Point(depthDisp.cols/2-155, depthDisp.rows), Scalar(255,255,255), 1, 4);
-		line(depthDisp, Point(depthDisp.cols/2+155, 0), Point(depthDisp.cols/2+155, depthDisp.rows), Scalar(255,255,255), 1, 4);
-		line(depthDisp, Point(depthDisp.cols/2-200, 0), Point(depthDisp.cols/2-200, depthDisp.rows), Scalar(255,255,255), 1, 4);
-		line(depthDisp, Point(depthDisp.cols/2+200, 0), Point(depthDisp.cols/2+200, depthDisp.rows), Scalar(255,255,255), 1, 4);
-		//横は200で30cm相当
-		line(depthDisp, Point(0, depthDisp.rows/2), Point(depthDisp.cols, depthDisp.rows/2), Scalar(255,255,255), 1, 4);
-		line(depthDisp, Point(0, depthDisp.rows/2-100), Point(depthDisp.cols, depthDisp.rows/2-100), Scalar(255,255,255), 1, 4);
-		line(depthDisp, Point(0, depthDisp.rows/2-50), Point(depthDisp.cols, depthDisp.rows/2-50), Scalar(255,255,255), 1, 4);
-		//縦は100で15.3cm相当
-		//281:281
-		//エッジの端点を探す範囲
-		line(depthDisp, Point(150, 0), Point(150, depthDisp.rows), Scalar(155,155,155), 1, 4);
-		line(depthDisp, Point(810, 0), Point(810, depthDisp.rows), Scalar(155,155,155), 1, 4);
-		line(depthDisp, Point(0, 520), Point(depthDisp.cols, 520), Scalar(155,155,155), 1, 4);
-		line(depthDisp, Point(0, 100), Point(depthDisp.cols, 100), Scalar(155,155,155), 1, 4);
-
-		//cv::imshow("detph_8", depth_8);
-		cv::imshow("depth viewer", depthDisp);
-		cv::imshow("canny edge", depth_canny);
-		//cv::imshow("can1", can1);
-		//cv::imshow("can2", can2);
-		//cv::imshow("can3", can3);
-		//cv::imshow("can4", can4);
-
-		//ソケット通信
-		string message = "tech cam3d ";//送信メッセージ
-		message = message + to_string(rightX) + " " + to_string(rightY) + " " + to_string(leftX) + " " + to_string(leftY);
-		for (int i=0;i<rightArmGp.rows-1;i++) 
-			message=message + " " + to_string(rightArmGp.at<double>(i-1,1))+ " " + to_string(leftArmGp.at<double>(i-1,1));
+			vector<char> ReadData;
+			char nSend = client->Read(ReadData);
+			cout << "read:" << nSend << endl;
+			//ここまでソケット通信
 		
-		cout<<"COORDINATES TRANSFERT========================="<<endl;	
-		cout<<"rightArmGpHIRO"<<endl<<rightArmGp<<endl;
-		cout<<"leftArmGpHIRO"<<endl<<leftArmGp<<endl;
-		cout<<"message:"<<message<<endl;
+			if ((sendSuccess)<=0){
+			 	std::cout << "Trying to reconnect. flag: " << sendSuccess << std::endl;
+			 	reconnectSocket();
+
+			 }
 		
-		vector<char> SendData;
-		for(int i = 0; i < int(message.size()); i++){
-		  SendData.push_back(message[i]);
-		}
-		int sendSuccess = client->Write(SendData);//送信
-		cout<<"sendSuccess:"<<sendSuccess<<endl;
-		for(int i = 0; i < int(SendData.size()); i++){
-		  cout << SendData[i] ;
-		}
-		cout<<endl;
-		SendData.clear();
-
-		//readしないと通信がうまく行かない
-
-		vector<char> ReadData;
-		char nSend = client->Read(ReadData);
-		cout << "read:" << nSend << endl;
-		//ここまでソケット通信
-		
-		if ((sendSuccess)<=0){
-		 	std::cout << "Trying to reconnect. flag: " << sendSuccess << std::endl;
-		 	reconnectSocket();
-
-		 }
-
-
 	      }
 
 	      int key = cv::waitKey(1);
@@ -484,7 +474,7 @@ class Receiver
 	          save = true;
 	        }
 	        break;
-	       }
+	      }
 	    }
 	    cv::destroyAllWindows();
 	    cv::waitKey(100);
@@ -691,34 +681,33 @@ class Receiver
 	      cv::applyColorMap(tmp, out, cv::COLORMAP_JET);
 	  }
 
-	void average10Pictures(const cv::Mat &in0, const cv::Mat &in1, const cv::Mat &in2, const cv::Mat &in3, const cv::Mat &in4, const cv::Mat &in5,
-				 const cv::Mat &in6, const cv::Mat &in7, const cv::Mat &in8, const cv::Mat &in9, cv::Mat &out)
+
+	cv::Mat  averagePictures(queue<cv::Mat> depthQueue)
 	{//画像10個の平均を出力
 		///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	    //オリジナルのdepthはCV_16U
-	    cv::Mat tmp = cv::Mat(in0.rows, in0.cols, CV_16U);//一旦tmpに入れて最後にoutに入れる
+	    cv::Mat average = Mat::zeros(depthQueue.front().rows, depthQueue.front().cols, CV_16U);//一旦tmpに入れて最後にoutに入れる
 
-	    #pragma omp parallel for
-	    for(int r = 0; r < in1.rows; ++r){
-	      const uint16_t *it0In = in0.ptr<uint16_t>(r);
-	      const uint16_t *it1In = in1.ptr<uint16_t>(r);
-	      const uint16_t *it2In = in2.ptr<uint16_t>(r);
-	      const uint16_t *it3In = in3.ptr<uint16_t>(r);
-	      const uint16_t *it4In = in4.ptr<uint16_t>(r);
-	      const uint16_t *it5In = in5.ptr<uint16_t>(r);
-	      const uint16_t *it6In = in6.ptr<uint16_t>(r);
-	      const uint16_t *it7In = in7.ptr<uint16_t>(r);
-	      const uint16_t *it8In = in8.ptr<uint16_t>(r);
-	      const uint16_t *it9In = in9.ptr<uint16_t>(r);
-	      uint16_t *itOut = tmp.ptr<uint16_t>(r);
+	    	int queueLength=(int)depthQueue.size();
 
-	      for(int c = 0; c < in0.cols; ++c, ++it0In, ++it1In, ++it2In, ++it3In, ++it4In, ++it5In, ++it6In, ++it7In, ++it8In, ++it9In, ++itOut){
-	  	*itOut = (*it0In + *it1In + *it2In + *it3In + *it4In + *it5In + *it6In + *it7In + *it8In + *it9In)/10;
-	        }
-	      }
-	      out = tmp;
+	    	if(depthQueue.empty())
+	    	{
+	    		cout<<"WARNING: average10Pictures():Queue empty"<<endl;
+	    		return Mat::zeros(10,10,CV_16U);
+	    	}
+
+	    	if(queueLength>0)
+	    	{	for(int i=0;i<queueLength;i++)
+		    	{
+		    		average=average+depthQueue.front();
+		    		depthQueue.pop();
+		    	}
+
+		    	return average/(queueLength);
+	    	}
+
+	    	return depthQueue.front();
 	}
-
 	void convert16Uto8U(const cv::Mat &in1, cv::Mat &out){//16Uのin1を8UのoutにMAXVALUEとMINVALUEに基づいて変換
 
 	    for(int r = 0; r < in1.rows; r++)
@@ -764,9 +753,6 @@ class Receiver
 		rightArmGp.at<double>(0,1) = ( (-z/av)*(rightArmGp.at<double>(0,1) - v0) );
 
 		z=leftArmGp.at<double>(1,1);
-		cout<<"Test calcul: "<< z<<endl;
-		cout<<"Test calcul: "<< (-z/au)<<endl;
-		cout<<"Test calcul: "<< leftArmGp.at<double>(-1,1) - u0 <<endl;
 		leftArmGp.at<double>(-1,1) = ( (-z/au) *(leftArmGp.at<double>(-1,1) - u0) );
 		leftArmGp.at<double>(0,1) = ( (-z/av)*(leftArmGp.at<double>(0,1) - v0) );
 
