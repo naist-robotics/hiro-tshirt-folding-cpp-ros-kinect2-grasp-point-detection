@@ -86,8 +86,8 @@ cv::Mat conversion=(Mat_<double>(4,4) << 	0.001, 0, 0, 0,
 											0, 0, 0, 1); // conversion from mm to meters
 
 // Limits field of view in depth. Check.
-static const float DEPTHMAX = 880;//深度画像を見やすくする　間隔は60
-static const float DEPTHMIN = 750;	//CAREFULL: DEPTHMAX-DEPTHMIN<200 otherwise the canny filter won't work
+static const float DEPTHMAX = 950;//深度画像を見やすくする　間隔は60
+static const float DEPTHMIN = 850;	//CAREFULL: DEPTHMAX-DEPTHMIN<200 otherwise the canny filter won't work
 					//DEPTHMAX-DEPTHMIN=100 is a good choice 
 
 class Receiver
@@ -304,7 +304,7 @@ void imageViewer()
 	    const double sizeText = 0.5;
 	    const int lineText = 1;
 	    const int font = cv::FONT_HERSHEY_SIMPLEX;
-	    const int SIZE_DEPTH_QUEUE = 10;
+	    const int SIZE_DEPTH_QUEUE = 3;
 	    //float depthMax = 780.0f, depthMin = 620.0f;//20160121
 	    float depthMax = 900.0f, depthMin = 800.0f;
 
@@ -337,7 +337,7 @@ void imageViewer()
 			//メディアンを用いた平滑化
 			cv::medianBlur(depth, depthM, 3);
 			if(depthQueue.size()<SIZE_DEPTH_QUEUE){
-			  cout << "Filling Image Buffer:" << endl;
+			  //cout << "Filling Image Buffer:" << endl;
 			  depthQueue.push(depth);
 
 			}
@@ -367,21 +367,19 @@ void imageViewer()
 			depth_8 = cv::Mat::zeros(Size(depth.cols,depth.rows), CV_8U);
 			convert16Uto8U(depth, depth_8);
 			//depth.convertTo(depth_8, CV_8U, 0.3);
-			cv::Canny(depth_8, depth_canny, 100,50);
+			cv::Canny(depth_8, depth_canny, 100,20);
 			/*cv::Canny(depth_8, can1, 100, 20);
 			cv::Canny(depth_8, can2, 100, 30);
 			cv::Canny(depth_8, can3, 100, 40);
 			cv::Canny(depth_8, can4, 100, 50);*/
 
-			cout<<"BEGIN#############################################################"<<endl;
+			cout<<"######################Begining of image processing #######################################"<<endl;
 
 				
 			getSidePoints(depth,depth_canny, rightX, rightY, leftX, leftY,rightArmGp,leftArmGp); // (find rightmost and leftmost points (within hard-coded limits) in input matrix)
-
-			cout<<"adjust HIRO coordinates"<<endl;
 			adjustHIROcoordinate(rightX, rightY, leftX, leftY,rightArmGp,leftArmGp); // Transformation from Kinect CSYS to HIRO's coordinate system	
 
-			
+			cout<<"######################End of image processing ############################################"<<endl;			
 
 			dispDepth(depth, depthDisp, depthMax, depthMin);
 			//depthMaxCut(depth, depthDisp, depthMax, depthMin);
@@ -612,7 +610,7 @@ void imageViewer()
 			for(int c = 0; c < in.cols; ++c, ++itI){
 				//if(r==539)			
 				//cout<<"C="<<c<<endl;
-				if(*itI == 255 && c > 200 && c < 650 && r < 450 && r > 120){// research window in the depth image
+				if(*itI == 255 && c > 225 && c < 650 && r < 490 && r > 220){// research window in the depth image
 					if(rightX > c){
 		    				rightX = c; rightY = r;
 						
