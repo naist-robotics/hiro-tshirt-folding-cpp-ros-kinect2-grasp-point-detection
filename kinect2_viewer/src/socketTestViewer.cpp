@@ -317,7 +317,7 @@ void imageViewer()
 	    // cout<<"rightArmGp:["<<rightArmGp.at<double>(3,1)<<std::endl;
 
 
-	    int rightX, rightY, leftX, leftY;
+	  
 
 
 	    cv::namedWindow("Image Viewer");
@@ -376,8 +376,8 @@ void imageViewer()
 			cout<<"######################Begining of image processing #######################################"<<endl;
 
 				
-			getSidePoints(depth,depth_canny, rightX, rightY, leftX, leftY,rightArmGp,leftArmGp); // (find rightmost and leftmost points (within hard-coded limits) in input matrix)
-			adjustHIROcoordinate(rightX, rightY, leftX, leftY,rightArmGp,leftArmGp); // Transformation from Kinect CSYS to HIRO's coordinate system	
+			getSidePoints(depth,depth_canny,rightArmGp,leftArmGp); // (find rightmost and leftmost points (within hard-coded limits) in input matrix)
+			adjustHIROcoordinate(rightArmGp,leftArmGp); // Transformation from Kinect CSYS to HIRO's coordinate system	
 
 			cout<<"######################End of image processing ############################################"<<endl;			
 
@@ -416,34 +416,30 @@ void imageViewer()
 			//cv::imshow("can4", can4);
 
 			//ソケット通信
-			string message = "tech cam3d ";//送信メッセージ
-			message = message + to_string(rightX) + " " + to_string(rightY) + " " + to_string(leftX) + " " + to_string(leftY);
+			string message = "sidePoints";//送信メッセージ
+			//message = message + to_string(rightX) + " " + to_string(rightY) + " " + to_string(leftX) + " " + to_string(leftY);
 			for (int i=0;i<rightArmGp.rows-1;i++) 
 				message=message + " " + to_string(rightArmGp.at<double>(i-1,1))+ " " + to_string(leftArmGp.at<double>(i-1,1));
 			
-			cout<<"COORDINATES TRANSFERT========================="<<endl;	
-			cout<<"rightArmGpHIRO"<<endl<<rightArmGp<<endl;
-			cout<<"leftArmGpHIRO"<<endl<<leftArmGp<<endl;
-			cout<<"message:"<<message<<endl;
+			//cout<<"COORDINATES TRANSFERT========================="<<endl;	
+			//cout<<"rightArmGpHIRO"<<endl<<rightArmGp<<endl;
+			//cout<<"leftArmGpHIRO"<<endl<<leftArmGp<<endl;
+			//cout<<"message:"<<message<<endl;
 		
-			vector<char> SendData;
-			for(int i = 0; i < int(message.size()); i++){
-			  SendData.push_back(message[i]);
-			}
-			int sendSuccess = client->Write(SendData);//送信
+			
+			// Send Data through ethernet
+			int sendSuccess=sendTCP(message);
 			cout<<"sendSuccess:"<<sendSuccess<<endl;
-			for(int i = 0; i < int(SendData.size()); i++){
-			  cout << SendData[i] ;
-			}
-			cout<<endl;
-			SendData.clear();
 
-			//readしないと通信がうまく行かない
 
+			//Receive Data from the ethernet
+			//char nSend = receiveTCP();
 			vector<char> ReadData;
-			char nSend = client->Read(ReadData);
-			cout << "read:" << nSend << endl;
-			//ここまでソケット通信
+			client->Read(ReadData)
+;			for (std::vector<char>::const_iterator i = ReadData.begin(); i != ReadData.end(); ++i)
+    			std::cout << *i;
+			cout << "<- = contents of ReadData." << endl;
+
 		
 			if ((sendSuccess)<=0){
 			 	std::cout << "Trying to reconnect. flag: " << sendSuccess << std::endl;
@@ -478,7 +474,20 @@ void imageViewer()
 	    cv::waitKey(100);
 	  }
 
+	int sendTCP (string message){
+		vector<char> SendData;
+		for(int i = 0; i < int(message.size()); i++){
+			  SendData.push_back(message[i]);
+		}
+		return client->Write(SendData);//送信
 
+	}
+
+	vector<char> receiveTCP(){
+			vector<char> ReadData;
+			client->Read(ReadData);
+			return ReadData;
+	} 
 	void cloudViewer()
 	  {
 	    cv::Mat color, depth;
@@ -590,11 +599,12 @@ void imageViewer()
 	      cv::applyColorMap(tmp, out, cv::COLORMAP_JET);
 	  }
 
-	  void getSidePoints(cv::Mat depth,cv::Mat &in, int &rightX, int &rightY, int &leftX, int &leftY, cv::Mat &rightArmGp, cv::Mat &leftArmGp)//左右の端点を探索
+	  void getSidePoints(cv::Mat depth,cv::Mat &in, cv::Mat &rightArmGp, cv::Mat &leftArmGp)//左右の端点を探索
 	  {
 	    	cv::Mat tmp = cv::Mat(in.rows, in.cols, CV_8U);
-	    	rightX = 500;
-	    	leftX = 0;
+	    	int rightX = 500,rightY=0;
+	    	int leftX = 0,leftY=0;
+	   
 
 
 		rightArmGp =Mat::ones(rightArmGp.rows, rightArmGp.cols, CV_64F);//Clear/initialize the vectors
@@ -730,15 +740,8 @@ void imageViewer()
 	    }
 	  }
 
-	void adjustHIROcoordinate(int &rightX, int &rightY, int &leftX, int &leftY, cv::Mat &rightArmGp,cv::Mat &leftArmGp){
-	    int rX = rightX, rY = rightY, lX = leftX, lY = leftY;
+	void adjustHIROcoordinate( cv::Mat &rightArmGp,cv::Mat &leftArmGp){
 
-		// Unused (legacy code from watabe)
-		rightX = int( ((rY-277)*0.0015 + 0.340)*10000 );
-		rightY = int( ((rX-285)*0.0015 - 0.358)*10000 );
-		leftX  = int( ((lY-277)*0.0015 + 0.340)*10000 );
-		leftY  = int( ((lX-675)*0.0015 + 0.358)*10000 );
-	    	//cout << "adjust data:" << rightX << ", " << rightY << ", " << leftX << ", " << leftY << endl;
 
 		cout<<"IMAGE COORDINATES=========================="<<endl;
 		cout<<"rightArm"<<endl<<rightArmGp<<endl;
