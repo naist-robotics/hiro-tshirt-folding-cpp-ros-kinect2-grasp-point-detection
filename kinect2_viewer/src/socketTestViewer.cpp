@@ -375,9 +375,17 @@ void imageViewer()
 
 			cout<<"######################Begining of image processing #######################################"<<endl;
 
-				
 			getSidePoints(depth,depth_canny,rightArmGp,leftArmGp); // (find rightmost and leftmost points (within hard-coded limits) in input matrix)
-			adjustHIROcoordinate(rightArmGp,leftArmGp); // Transformation from Kinect CSYS to HIRO's coordinate system	
+			
+			cout<<"IMAGE COORDINATES=========================="<<endl;
+			cout<<"rightArm"<<endl<<rightArmGp<<endl;
+			cout<<"leftArm"<<endl<<leftArmGp<<endl;
+			kinectToHIRO(rightArmGp);			 // Transformation from Kinect CSYS to HIRO's coordinate system
+			kinectToHIRO(leftArmGp);
+
+			cout<<"HIRO COORDINATES========================="<<endl;	
+			cout<<"rightArmGpHIRO"<<endl<<rightArmGp<<endl;
+			cout<<"leftArmGpHIRO"<<endl<<leftArmGp<<endl;	
 
 			cout<<"######################End of image processing ############################################"<<endl;			
 
@@ -614,40 +622,36 @@ void imageViewer()
 
 	    
 		//Get the coordinate of the two side points in the image coordinate system (unit:pixels)
-	    	for(int r = 0; r < in.rows; ++r){
+	    for(int r = 0; r < in.rows; ++r){
 			//cout<<"R= "<<r<<endl;
-	     		uint8_t *itI = in.ptr<uint8_t>(r);
+	     	uint8_t *itI = in.ptr<uint8_t>(r);
 			for(int c = 0; c < in.cols; ++c, ++itI){
 				//if(r==539)			
 				//cout<<"C="<<c<<endl;
 				if(*itI == 255 && c > 225 && c < 650 && r < 490 && r > 220){// research window in the depth image
 					if(rightX > c){
-		    				rightX = c; rightY = r;
-						
+			    		rightX = c; rightY = r;
 						rightArmGp.at<double>(-1,1)=c;
 						rightArmGp.at<double>(0,1)=r;
-		  				}
-		  		if(leftX < c){
-		   	 			leftX = c; leftY = r;
+			  				}
+			  		if(leftX < c){
+			   	 			leftX = c; leftY = r;
+		          			leftArmGp.at<double>(-1,1)=c;
+							leftArmGp.at<double>(0,1)=r;
+		                    
+					}
 
-						
-	          leftArmGp.at<double>(-1,1)=c;
-						leftArmGp.at<double>(0,1)=r;
-	                    
-		  				}
-
-
-	      		}
-	    	}
-				}
+		   		}
+		   	}
+	 	}
 
 		//Circle the points in the image
-	    	cv::circle(in, cv::Point(rightX, rightY), 10, cv::Scalar(200,200,200), 2, 4);
-	    	cv::circle(in, cv::Point(rightX, rightY), 15, cv::Scalar(200,200,200), 2, 4);
-	    	cv::circle(in, cv::Point(leftX, leftY), 13, cv::Scalar(160,160,160), 2, 4);
+	    cv::circle(in, cv::Point(rightX, rightY), 10, cv::Scalar(200,200,200), 2, 4);
+	    cv::circle(in, cv::Point(rightX, rightY), 15, cv::Scalar(200,200,200), 2, 4);
+	    cv::circle(in, cv::Point(leftX, leftY), 13, cv::Scalar(160,160,160), 2, 4);
 
 		//Get the corresponding depth for each side points
-	  rightArmGp.at<double>(1,1)=depth.at<short>(rightArmGp.at<double>(0,1),rightArmGp.at<double>(-1,1));
+	  	rightArmGp.at<double>(1,1)=depth.at<short>(rightArmGp.at<double>(0,1),rightArmGp.at<double>(-1,1));
 		leftArmGp.at<double>(1,1)=depth.at<short>(leftArmGp.at<double>(0,1),leftArmGp.at<double>(-1,1));
 
 
@@ -740,33 +744,19 @@ void imageViewer()
 	    }
 	  }
 
-	void adjustHIROcoordinate( cv::Mat &rightArmGp,cv::Mat &leftArmGp){
+	void kinectToHIRO( cv::Mat &inputPoint){
 
 
-		cout<<"IMAGE COORDINATES=========================="<<endl;
-		cout<<"rightArm"<<endl<<rightArmGp<<endl;
-		cout<<"leftArm"<<endl<<leftArmGp<<endl;
+
 
 		//Tranformation of pixel coordinatesa to 3D x-, y-coordinates in 3D Kinect coordinate system
-		double z=rightArmGp.at<double>(1,1);	// Taken from depth sensor
-			cout<<"Param intrinseques: "<<au<<","<<av<<", "<<u0<<","<<v0<<endl;
-		rightArmGp.at<double>(-1,1) = ( (-z/au) *(rightArmGp.at<double>(-1,1)- u0) );
-		rightArmGp.at<double>(0,1) = ( (-z/av)*(rightArmGp.at<double>(0,1) - v0) );
+		double z=inputPoint.at<double>(1,1);	// Taken from depth sensor
+		inputPoint.at<double>(-1,1) = ( (-z/au) *(inputPoint.at<double>(-1,1)- u0) );
+		inputPoint.at<double>(0,1) = ( (-z/av)*(inputPoint.at<double>(0,1) - v0) );
 
-		z=leftArmGp.at<double>(1,1);
-		leftArmGp.at<double>(-1,1) = ( (-z/au) *(leftArmGp.at<double>(-1,1) - u0) );
-		leftArmGp.at<double>(0,1) = ( (-z/av)*(leftArmGp.at<double>(0,1) - v0) );
 
-		
-		rightArmGp=conversion*rightArmGp;
-		leftArmGp=conversion*leftArmGp; // conversion from mm to meters;
 
-		cout<<"KINECT COORDINATES========================="<<endl;
-		cout<<"rightArm"<<endl<<rightArmGp<<endl;
-		cout<<"leftArm"<<endl<<leftArmGp<<endl;
-
-		
-		
+		inputPoint=conversion*inputPoint; // conversion from mm to meters;
 
 
 	    //Tranformation from Kinect Coordinate System to HIRo Coordinate system
@@ -776,15 +766,7 @@ void imageViewer()
 	   -0.0061,    0.0114,   -0.9999,    0.9961,
 	         0,         0,         0,    1.0000);
 
-
-		rightArmGp = kinectToHIRO * rightArmGp;
-		leftArmGp = kinectToHIRO * leftArmGp;
-		
-		cout<<"HIRO COORDINATES========================="<<endl;	
-		//cout<<"kinectToHIRO:"<<endl<<kinectToHIRO<<endl;
-		cout<<"rightArmGpHIRO"<<endl<<rightArmGp<<endl;
-		cout<<"leftArmGpHIRO"<<endl<<leftArmGp<<endl;
-
+		inputPoint = kinectToHIRO * inputPoint;
 
 	    
 	  }
