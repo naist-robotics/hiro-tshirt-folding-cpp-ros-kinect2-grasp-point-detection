@@ -33,6 +33,8 @@
 #include <pcl/visualization/cloud_viewer.h>
 
 #include <opencv2/opencv.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
 
 #include <ros/ros.h>
 #include <ros/spinner.h>
@@ -105,7 +107,7 @@ class Receiver
 
 	  std::mutex lock;
 
-	  const std::string topicColor, topicDepth;
+	  const std::string topicColor, topicDepth;//topicPoints
 	  const bool useExact, useCompressed;
 
 	  bool updateImage, updateCloud;
@@ -114,7 +116,7 @@ class Receiver
 	  size_t frame;
 	  const size_t queueSize;
 
-	  cv::Mat color, depth;
+	  cv::Mat color, depth;//points
 	  cv::Mat cameraMatrixColor, cameraMatrixDepth;
 	  cv::Mat lookupX, lookupY;
 
@@ -305,8 +307,11 @@ void imageViewer()
 	    const int lineText = 1;
 	    const int font = cv::FONT_HERSHEY_SIMPLEX;
 	    const int SIZE_DEPTH_QUEUE = 3;
-	    //float depthMax = 780.0f, depthMin = 620.0f;//20160121
+	    int deskHeight;
 	    float depthMax = 900.0f, depthMin = 800.0f;
+
+	    int Lthresh=817,Hthresh=873;
+
 
 	    //ソケット通信
 	    cv::Mat rightArmGp=Mat::ones(4 ,1, CV_64F);// vector[x,y,z,1] , the one is needed for calculations below
@@ -320,7 +325,9 @@ void imageViewer()
 	  
 
 
-	    cv::namedWindow("Image Viewer");
+	    cv::namedWindow("Control");
+	   	cvCreateTrackbar("Lthresh", "Control", &Lthresh, 1200); //Hue (0 - 179)
+ 		cvCreateTrackbar("Hthresh", "Control", &Hthresh, 1200);
 	    oss << "starting...";
 
 	    start = std::chrono::high_resolution_clock::now();
@@ -334,6 +341,7 @@ void imageViewer()
 	        updateImage = false;
 	        lock.unlock();
 
+	        string message;
 			//メディアンを用いた平滑化
 			cv::medianBlur(depth, depthM, 3);
 			if(depthQueue.size()<SIZE_DEPTH_QUEUE){
@@ -375,11 +383,17 @@ void imageViewer()
 
 			cout<<"######################Begining of image processing #######################################"<<endl;
 
+			deskHeight=getDesktopHeight(depth);cout<<"Desktop height="<<deskHeight<<endl;
+			int ClothOnDesktop= isClothOnDesktop(depth,Lthresh,Hthresh);
+			message+="deskHeight "+to_string(deskHeight)+" ClothOnDesktop " +to_string(ClothOnDesktop)+ " " ;
+
 			getSidePoints(depth,depth_canny,rightArmGp,leftArmGp); // (find rightmost and leftmost points (within hard-coded limits) in input matrix)
-			
+
+
 			cout<<"IMAGE COORDINATES=========================="<<endl;
 			cout<<"rightArm"<<endl<<rightArmGp<<endl;
 			cout<<"leftArm"<<endl<<leftArmGp<<endl;
+			
 			kinectToHIRO(rightArmGp);			 // Transformation from Kinect CSYS to HIRO's coordinate system
 			kinectToHIRO(leftArmGp);
 
@@ -387,15 +401,21 @@ void imageViewer()
 			cout<<"rightArmGpHIRO"<<endl<<rightArmGp<<endl;
 			cout<<"leftArmGpHIRO"<<endl<<leftArmGp<<endl;	
 
-			cout<<"######################End of image processing ############################################"<<endl;			
+			cout<<"######################End of image processing ############################################"<<endl;
+
+			//Display the 4 points used to compute the Desktop height
+			cv::circle(depth_canny, cv::Point(140,215), 10, cv::Scalar(255,0,0), 2, 4);
+			cv::circle(depth_canny, cv::Point(750,215), 10, cv::Scalar(255,0,0), 2, 4);
+			cv::circle(depth_canny, cv::Point(140,500), 10, cv::Scalar(255,0,0), 2, 4);
+			cv::circle(depth_canny, cv::Point(750,500), 10, cv::Scalar(255,0,0), 2, 4);
 
 			dispDepth(depth, depthDisp, depthMax, depthMin);
 			//depthMaxCut(depth, depthDisp, depthMax, depthMin);
-		        combine(color, depthDisp, combined);
-		        //combined = color;
+		    combine(color, depthDisp, combined);
+		    //combined = color;
 
-		        cv::putText(combined, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
-		        //cv::imshow("Image Viewer", combined);
+		    cv::putText(combined, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
+		    //cv::imshow("Image Viewer", combined);
 
 			//cout << "depth.rows:" << depth.rows << "   depth.cols" << depth.cols << endl;
 			line(depthDisp, Point(depthDisp.cols/2, 0), Point(depthDisp.cols/2, depthDisp.rows), Scalar(255,255,255), 1, 4);
@@ -416,16 +436,15 @@ void imageViewer()
 			line(depthDisp, Point(0, 100), Point(depthDisp.cols, 100), Scalar(155,155,155), 1, 4);
 
 			//cv::imshow("detph_8", depth_8);
-			cv::imshow("depth viewer", depthDisp);
+			//cv::imshow("depth viewer", depthDisp);
 			cv::imshow("canny edge", depth_canny);
 			//cv::imshow("can1", can1);
 			//cv::imshow("can2", can2);
 			//cv::imshow("can3", can3);
 			//cv::imshow("can4", can4);
 
-			//ソケット通信
-			string message = "sidePoints";//送信メッセージ
-			//message = message + to_string(rightX) + " " + to_string(rightY) + " " + to_string(leftX) + " " + to_string(leftY);
+			//Send the two sidepoints to HIRO
+			message += "sidePoints";
 			for (int i=0;i<rightArmGp.rows-1;i++) 
 				message=message + " " + to_string(rightArmGp.at<double>(i-1,1))+ " " + to_string(leftArmGp.at<double>(i-1,1));
 			
@@ -443,8 +462,8 @@ void imageViewer()
 			//Receive Data from the ethernet
 			//char nSend = receiveTCP();
 			vector<char> ReadData;
-			client->Read(ReadData)
-;			for (std::vector<char>::const_iterator i = ReadData.begin(); i != ReadData.end(); ++i)
+			client->Read(ReadData);
+			for (std::vector<char>::const_iterator i = ReadData.begin(); i != ReadData.end(); ++i)
     			std::cout << *i;
 			cout << "<- = contents of ReadData." << endl;
 
@@ -495,7 +514,58 @@ void imageViewer()
 			vector<char> ReadData;
 			client->Read(ReadData);
 			return ReadData;
-	} 
+	}
+
+	float getDesktopHeight(Mat depth){
+			// compute desktop height with the average of 4 points wich are supposed to be on the Desktop
+
+		std::vector<double> depthpoints;
+		depthpoints.push_back(depth.at<short>(215,140));
+		depthpoints.push_back(depth.at<short>(215,750));
+		depthpoints.push_back(depth.at<short>(500,140));
+		depthpoints.push_back(depth.at<short>(500,750));
+
+
+		float mean = std::accumulate(depthpoints.begin(), depthpoints.end(), 0.0) / depthpoints.size();
+
+		return mean;
+
+	
+	}
+
+	int isClothOnDesktop(Mat depth,int Lthresh,int Hthresh){
+		//return 1: cloth on desktop
+		//return 0: no cloth  on Desktop
+
+		Mat clothLoc;
+		Mat kernel;
+		vector<vector<Point> > contours;
+  		vector<Vec4i> hierarchy;
+  		double largestArea=0;
+  		Moments myMoments;
+
+		inRange(depth,Lthresh,Hthresh,clothLoc);
+		kernel=Mat::ones(6,6,CV_8U);
+		morphologyEx(clothLoc,clothLoc,MORPH_ERODE,kernel);
+		kernel=Mat::ones(10,10,CV_8U);
+		morphologyEx(clothLoc,clothLoc,MORPH_DILATE,kernel);
+		imshow("cloth",clothLoc);
+		findContours( clothLoc, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
+
+		for (uint i=0;i<contours.size();i++){
+
+			myMoments=moments(contours[i]);
+			if(largestArea<myMoments.m00)
+					largestArea=myMoments.m00;
+		}
+
+		
+		if(largestArea>15000)
+			return 1;
+		
+		return 0;
+	}
+	
 	void cloudViewer()
 	  {
 	    cv::Mat color, depth;
@@ -635,9 +705,9 @@ void imageViewer()
 						rightArmGp.at<double>(0,1)=r;
 			  				}
 			  		if(leftX < c){
-			   	 			leftX = c; leftY = r;
-		          			leftArmGp.at<double>(-1,1)=c;
-							leftArmGp.at<double>(0,1)=r;
+			   	 		leftX = c; leftY = r;
+		          		leftArmGp.at<double>(-1,1)=c;
+						leftArmGp.at<double>(0,1)=r;
 		                    
 					}
 
@@ -745,8 +815,6 @@ void imageViewer()
 	  }
 
 	void kinectToHIRO( cv::Mat &inputPoint){
-
-
 
 
 		//Tranformation of pixel coordinatesa to 3D x-, y-coordinates in 3D Kinect coordinate system
@@ -915,6 +983,7 @@ int main(int argc, char **argv)
   std::string ns = K2_DEFAULT_NS;
   std::string topicColor = K2_TOPIC_QHD K2_TOPIC_IMAGE_COLOR K2_TOPIC_IMAGE_RECT;
   std::string topicDepth = K2_TOPIC_QHD K2_TOPIC_IMAGE_DEPTH K2_TOPIC_IMAGE_RECT;
+  //std::string topicPoints = K2_TOPIC_QHD K2_TOPIC_IMAGE_POINTS K2_TOPIC_IMAGE_RECT;
   bool useExact = true;
   bool useCompressed = false;
   Receiver::Mode mode = Receiver::CLOUD;
@@ -934,21 +1003,25 @@ int main(int argc, char **argv)
     {
       topicColor = K2_TOPIC_QHD K2_TOPIC_IMAGE_COLOR K2_TOPIC_IMAGE_RECT;
       topicDepth = K2_TOPIC_QHD K2_TOPIC_IMAGE_DEPTH K2_TOPIC_IMAGE_RECT;
+      //std::string topicPoints = K2_TOPIC_QHD K2_TOPIC_IMAGE_POINTS K2_TOPIC_IMAGE_RECT;
     }
     else if(param == "hd")
     {
       topicColor = K2_TOPIC_HD K2_TOPIC_IMAGE_COLOR K2_TOPIC_IMAGE_RECT;
       topicDepth = K2_TOPIC_HD K2_TOPIC_IMAGE_DEPTH K2_TOPIC_IMAGE_RECT;
+      //std::string topicPoints = K2_TOPIC_HD K2_TOPIC_IMAGE_POINTS K2_TOPIC_IMAGE_RECT;
     }
     else if(param == "ir")
     {
       topicColor = K2_TOPIC_SD K2_TOPIC_IMAGE_IR K2_TOPIC_IMAGE_RECT;
       topicDepth = K2_TOPIC_SD K2_TOPIC_IMAGE_DEPTH K2_TOPIC_IMAGE_RECT;
+      //std::string topicPoints = K2_TOPIC_QHD K2_TOPIC_IMAGE_POINTS K2_TOPIC_IMAGE_RECT;
     }
     else if(param == "sd")
     {
       topicColor = K2_TOPIC_SD K2_TOPIC_IMAGE_COLOR K2_TOPIC_IMAGE_RECT;
       topicDepth = K2_TOPIC_SD K2_TOPIC_IMAGE_DEPTH K2_TOPIC_IMAGE_RECT;
+      //std::string topicPoints = K2_TOPIC_QHD K2_TOPIC_IMAGE_POINTS K2_TOPIC_IMAGE_RECT;
     }
     else if(param == "approx")
     {
@@ -981,8 +1054,10 @@ int main(int argc, char **argv)
   topicDepth = "/" + ns + topicDepth;
   OUT_INFO("topic color: " FG_CYAN << topicColor << NO_COLOR);
   OUT_INFO("topic depth: " FG_CYAN << topicDepth << NO_COLOR);
+  //OUT_INFO("topic points: " FG_CYAN << topicPOINTS << NO_COLOR);
 
   Receiver receiver(topicColor, topicDepth, useExact, useCompressed);
+  //Receiver receiver(topicColor, topicDepth, topicPoints, useExact, useCompressed);
 
 
   OUT_INFO("starting receiver...");
