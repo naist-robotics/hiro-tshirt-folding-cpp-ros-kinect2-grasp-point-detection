@@ -309,8 +309,8 @@ void imageViewer()
 	    const int SIZE_DEPTH_QUEUE = 3;
 	    int deskHeight;
 	    float depthMax = 900.0f, depthMin = 800.0f;
-
 	    int Lthresh=817,Hthresh=873;
+	    Point topLeftPoint=Point(120,120);
 
 
 	    //ソケット通信
@@ -383,7 +383,7 @@ void imageViewer()
 
 			cout<<"######################Begining of image processing #######################################"<<endl;
 
-			deskHeight=getDesktopHeight(depth);cout<<"Desktop height="<<deskHeight<<endl;
+			deskHeight=getDesktopHeight(depth,topLeftPoint);cout<<"Desktop height="<<deskHeight<<endl;
 			int ClothOnDesktop= isClothOnDesktop(depth,Lthresh,Hthresh);
 			message+="deskHeight "+to_string(deskHeight)+" ClothOnDesktop " +to_string(ClothOnDesktop)+ " " ;
 
@@ -404,10 +404,11 @@ void imageViewer()
 			cout<<"######################End of image processing ############################################"<<endl;
 
 			//Display the 4 points used to compute the Desktop height
-			cv::circle(depth_canny, cv::Point(140,215), 10, cv::Scalar(255,0,0), 2, 4);
-			cv::circle(depth_canny, cv::Point(750,215), 10, cv::Scalar(255,0,0), 2, 4);
-			cv::circle(depth_canny, cv::Point(140,500), 10, cv::Scalar(255,0,0), 2, 4);
-			cv::circle(depth_canny, cv::Point(750,500), 10, cv::Scalar(255,0,0), 2, 4);
+			cv::circle(depth_canny, cv::Point(topLeftPoint.x,topLeftPoint.y), 10, cv::Scalar(255,0,0), 2, 4);
+			cv::circle(depth_canny, cv::Point(topLeftPoint.x+600,topLeftPoint.y), 10, cv::Scalar(255,0,0), 2, 4);
+			cv::circle(depth_canny, cv::Point(topLeftPoint.x,topLeftPoint.y+300), 10, cv::Scalar(255,0,0), 2, 4);
+			cv::circle(depth_canny, cv::Point(topLeftPoint.x+600,topLeftPoint.y+300), 10, cv::Scalar(255,0,0), 2, 4);
+
 
 			dispDepth(depth, depthDisp, depthMax, depthMin);
 			//depthMaxCut(depth, depthDisp, depthMax, depthMin);
@@ -516,14 +517,14 @@ void imageViewer()
 			return ReadData;
 	}
 
-	float getDesktopHeight(Mat depth){
+	float getDesktopHeight(Mat depth,Point topLeftPoint){
 			// compute desktop height with the average of 4 points wich are supposed to be on the Desktop
 
 		std::vector<double> depthpoints;
-		depthpoints.push_back(depth.at<short>(215,140));
-		depthpoints.push_back(depth.at<short>(215,750));
-		depthpoints.push_back(depth.at<short>(500,140));
-		depthpoints.push_back(depth.at<short>(500,750));
+		depthpoints.push_back(depth.at<short>(topLeftPoint.x,topLeftPoint.y));
+		depthpoints.push_back(depth.at<short>(topLeftPoint.x,topLeftPoint.y+600));
+		depthpoints.push_back(depth.at<short>(topLeftPoint.x+300,topLeftPoint.y));
+		depthpoints.push_back(depth.at<short>(topLeftPoint.x+300,topLeftPoint.y+600));
 
 
 		float mean = std::accumulate(depthpoints.begin(), depthpoints.end(), 0.0) / depthpoints.size();
@@ -698,7 +699,7 @@ void imageViewer()
 			for(int c = 0; c < in.cols; ++c, ++itI){
 				//if(r==539)			
 				//cout<<"C="<<c<<endl;
-				if(*itI == 255 && c > 225 && c < 650 && r < 490 && r > 220){// research window in the depth image
+				if(*itI == 255 && c > 107 && c < 615 && r < 325 && r > 110){// research window in the depth image
 					if(rightX > c){
 			    		rightX = c; rightY = r;
 						rightArmGp.at<double>(-1,1)=c;
