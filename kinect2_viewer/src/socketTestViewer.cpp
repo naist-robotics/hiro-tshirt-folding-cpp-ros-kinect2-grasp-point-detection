@@ -35,6 +35,7 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
+#include <opencv2/legacy/legacy.hpp>
 
 #include <ros/ros.h>
 #include <ros/spinner.h>
@@ -292,7 +293,7 @@ class Receiver
 
 void imageViewer()
 	  {
-	    cv::Mat color, depth, depthDisp, combined;
+	    cv::Mat color, depth, depthDisp, combined,cloth,cornersImg;
 	    cv::Mat depthM;
 
 	    queue<cv::Mat> depthQueue;
@@ -307,27 +308,40 @@ void imageViewer()
 	    const int lineText = 1;
 	    const int font = cv::FONT_HERSHEY_SIMPLEX;
 	    const int SIZE_DEPTH_QUEUE = 3;
-	    int deskHeight;
 	    float depthMax = 900.0f, depthMin = 800.0f;
-	    int Lthresh=817,Hthresh=873;
-	    Point topLeftPoint=Point(120,120);
+	    int Lthresh=817,Hthresh=873,thresh1=25,thresh2=30;
+	    int alp=10,bet=90,gam=40;
+	    Point topLeftPoint=Point(150,135);
+	    Point bottomRightPoint=Point(740,450);
+
+	    //corner detection
+	    int maxCorners = 10;
+	    vector<Point2f> corners;
+  		double qualityLevel = .4;
+  		double minDistance = 20;
+  		int blockSize = 20;
+  		bool useHarrisDetector = false;
+  		double k = 0.04;
 
 
 	    //ソケット通信
 	    cv::Mat rightArmGp=Mat::ones(4 ,1, CV_64F);// vector[x,y,z,1] , the one is needed for calculations below
 	    cv::Mat leftArmGp=Mat::ones(4 ,1, CV_64F);
+	    cv::Mat deskHeight=Mat::ones(4 ,1, CV_64F);
 
 	    // cout<<"rightArmGp:["<<rightArmGp.at<double>(-1,1)<<","<<rightArmGp.at<double>(0,1)<<","<<rightArmGp.at<double>(1,1)<<","<<rightArmGp.at<double>(2,1)<<"]"<<endl;
 	    // cout<<"rightArmGp:["<<rightArmGp.at<double>(-2,1)<<std::endl;
-	    // cout<<"rightArmGp:["<<rightArmGp.at<double>(3,1)<<std::endl;
-
-
-	  
+	    // cout<<"rightArmGp:["<<rightArmGp.at<double>(3,1)<<std::endl;			
 
 
 	    cv::namedWindow("Control");
 	   	cvCreateTrackbar("Lthresh", "Control", &Lthresh, 1200); //Hue (0 - 179)
  		cvCreateTrackbar("Hthresh", "Control", &Hthresh, 1200);
+ 		cvCreateTrackbar("thresh1", "Control", &thresh1, 1200); //Hue (0 - 179)
+ 		cvCreateTrackbar("thresh2", "Control", &thresh2, 1200); //Hue (0 - 179)
+ 		cvCreateTrackbar("alpha", "Control", &alp, 50);
+ 		cvCreateTrackbar("beta", "Control", &bet, 100);
+ 		cvCreateTrackbar("gamma", "Control", &gam, 100);
 	    oss << "starting...";
 
 	    start = std::chrono::high_resolution_clock::now();
@@ -383,9 +397,38 @@ void imageViewer()
 
 			cout<<"######################Begining of image processing #######################################"<<endl;
 
-			deskHeight=getDesktopHeight(depth,topLeftPoint);cout<<"Desktop height="<<deskHeight<<endl;
-			int ClothOnDesktop= isClothOnDesktop(depth,Lthresh,Hthresh);
-			message+="deskHeight "+to_string(deskHeight)+" ClothOnDesktop " +to_string(ClothOnDesktop)+ " " ;
+			// cloth=clothShapeDetection(depth,depth_8,thresh1,thresh2);
+   //  		 imshow( "cloth localisation", cloth );
+     		 imshow( "color image", color );
+
+   //  		 /// Apply corner detection
+  	// 		goodFeaturesToTrack( cloth,
+   //             corners,
+   //             maxCorners,
+   //             qualityLevel,
+   //             minDistance,
+   //             Mat(),
+   //             blockSize,
+   //             useHarrisDetector,
+   //             k );
+
+
+			//  /// Draw corners detected
+  	// 		cornersImg=color.clone();
+			//  for( int i = 0; i < maxCorners; i++ )
+			//      { circle( cornersImg, corners[i], 4, Scalar(0,0,255), -1, 8, 0 ); }
+
+			//   /// Show what you got
+			//   imshow( "corners", cornersImg );
+
+			//image's points of interest
+			deskHeight.at<double>(1,1)=getDesktopHeight(depth,topLeftPoint,bottomRightPoint);
+			kinectToHIRO(deskHeight);cout<<"Desktop height="<<deskHeight.at<double>(1,1)<<endl;
+			//int ClothOnDesktop= isClothOnDesktop(depth,Lthresh,Hthresh);
+			int ClothOnDesktop=clothShapeDetection(depth,depth_8,color,thresh1,thresh2,alp,float(bet)/100,float(gam)/100);
+			
+			message+="deskHeight "+to_string(deskHeight.at<double>(1,1))+" clothOnDesktop " +to_string(ClothOnDesktop)+ " " ;
+			//message+="deskHeight "+to_string(deskHeight.at<double>(1,1))+" clothOnDesktop " +to_string(0)+ " " ;
 
 			getSidePoints(depth,depth_canny,rightArmGp,leftArmGp); // (find rightmost and leftmost points (within hard-coded limits) in input matrix)
 
@@ -401,13 +444,15 @@ void imageViewer()
 			cout<<"rightArmGpHIRO"<<endl<<rightArmGp<<endl;
 			cout<<"leftArmGpHIRO"<<endl<<leftArmGp<<endl;	
 
+
+
 			cout<<"######################End of image processing ############################################"<<endl;
 
 			//Display the 4 points used to compute the Desktop height
 			cv::circle(depth_canny, cv::Point(topLeftPoint.x,topLeftPoint.y), 10, cv::Scalar(255,0,0), 2, 4);
-			cv::circle(depth_canny, cv::Point(topLeftPoint.x+600,topLeftPoint.y), 10, cv::Scalar(255,0,0), 2, 4);
-			cv::circle(depth_canny, cv::Point(topLeftPoint.x,topLeftPoint.y+300), 10, cv::Scalar(255,0,0), 2, 4);
-			cv::circle(depth_canny, cv::Point(topLeftPoint.x+600,topLeftPoint.y+300), 10, cv::Scalar(255,0,0), 2, 4);
+			cv::circle(depth_canny, cv::Point(bottomRightPoint.x,topLeftPoint.y), 10, cv::Scalar(255,0,0), 2, 4);
+			cv::circle(depth_canny, cv::Point(bottomRightPoint.x,bottomRightPoint.y), 10, cv::Scalar(255,0,0), 2, 4);
+			cv::circle(depth_canny, cv::Point(topLeftPoint.x,bottomRightPoint.y), 10, cv::Scalar(255,0,0), 2, 4);
 
 
 			dispDepth(depth, depthDisp, depthMax, depthMin);
@@ -438,7 +483,7 @@ void imageViewer()
 
 			//cv::imshow("detph_8", depth_8);
 			//cv::imshow("depth viewer", depthDisp);
-			cv::imshow("canny edge", depth_canny);
+			//cv::imshow("canny edge", depth_canny);
 			//cv::imshow("can1", can1);
 			//cv::imshow("can2", can2);
 			//cv::imshow("can3", can3);
@@ -456,6 +501,7 @@ void imageViewer()
 		
 			
 			// Send Data through ethernet
+			cout<<"Message:"<<message<<endl;
 			int sendSuccess=sendTCP(message);
 			cout<<"sendSuccess:"<<sendSuccess<<endl;
 
@@ -517,19 +563,30 @@ void imageViewer()
 			return ReadData;
 	}
 
-	float getDesktopHeight(Mat depth,Point topLeftPoint){
-			// compute desktop height with the average of 4 points wich are supposed to be on the Desktop
+	float getDesktopHeight(Mat depth,Point topLeftPoint, Point bottomRightPoint){
+		// compute desktop height using the median of a cloud point
 
+		float median;
+		int rowsNumber=4; //number of points in a row
+		int columnNumber=10;//number of points in a column
 		std::vector<double> depthpoints;
-		depthpoints.push_back(depth.at<short>(topLeftPoint.x,topLeftPoint.y));
-		depthpoints.push_back(depth.at<short>(topLeftPoint.x,topLeftPoint.y+600));
-		depthpoints.push_back(depth.at<short>(topLeftPoint.x+300,topLeftPoint.y));
-		depthpoints.push_back(depth.at<short>(topLeftPoint.x+300,topLeftPoint.y+600));
+		int rstep=(bottomRightPoint.y - topLeftPoint.y)/rowsNumber;
+		int cstep=(bottomRightPoint.x-topLeftPoint.x)/columnNumber;
+		//acquiring the point cloud
+		for(int i=0;i<rowsNumber;i++)
+			for(int j=0;j<columnNumber;j++)
+			depthpoints.push_back(depth.at<short>(topLeftPoint.y+i*rstep,topLeftPoint.x+j*cstep));	
+		
+		
 
+		//compute the median
+		sort(depthpoints.begin(),depthpoints.end());
+		if (depthpoints.size()%2==0)
+					median=(depthpoints[depthpoints.size()/2-1]+depthpoints[depthpoints.size()/2])/2;
+		else
+					median=depthpoints[depthpoints.size()/2];
 
-		float mean = std::accumulate(depthpoints.begin(), depthpoints.end(), 0.0) / depthpoints.size();
-
-		return mean;
+		return median;
 
 	
 	}
@@ -545,12 +602,13 @@ void imageViewer()
   		double largestArea=0;
   		Moments myMoments;
 
+  		// cloth presence
 		inRange(depth,Lthresh,Hthresh,clothLoc);
 		kernel=Mat::ones(6,6,CV_8U);
 		morphologyEx(clothLoc,clothLoc,MORPH_ERODE,kernel);
 		kernel=Mat::ones(10,10,CV_8U);
 		morphologyEx(clothLoc,clothLoc,MORPH_DILATE,kernel);
-		imshow("cloth",clothLoc);
+		//imshow("cloth",clothLoc);
 		findContours( clothLoc, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
 
 		for (uint i=0;i<contours.size();i++){
@@ -567,6 +625,119 @@ void imageViewer()
 		return 0;
 	}
 	
+	int clothShapeDetection(Mat depth, Mat depth8U,Mat color, int thresh1, int thresh2,float alphaS,float betaS, float gammaS){
+
+		//find the desk
+		Mat desk,kernel,cannyTest,final,contourSnake,grayImg,deskBorder=Mat::zeros(color.rows,color.cols,CV_8U);;
+		vector<vector<Point> > contours,deskContours,snakeInit;
+  		vector<Vec4i> hierarchy,hierarchyDesk;
+  		int largestArea=0,largest_contour_idx=0;
+  		Moments myMoments;
+
+
+
+		inRange(depth,810,923,desk);
+		kernel=getStructuringElement(MORPH_RECT, Size(20,20));
+		morphologyEx(desk,desk,MORPH_ERODE,kernel);// reduce desktop bordernoise
+		findContours(desk, contours, hierarchy, CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
+		for (uint i=0;i<contours.size();i++)
+				drawContours(desk,contours,i,255,CV_FILLED,8,hierarchy);
+		imshow("Desk",desk);
+		findContours(desk.clone(),deskContours, hierarchyDesk, CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
+		for (uint i=0;i<deskContours.size();i++)
+			drawContours(deskBorder,deskContours,i,255,1,8,hierarchyDesk);
+		//imshow("Desk",desk);
+		
+//*****COLTH EXTRACTION BASED ON SEGMENTATION**************************
+		// cvtColor( color, grayImg, CV_BGR2GRAY );
+		// //equalizeHist( grayImg, grayImg );
+		// inRange(grayImg,thresh1,thresh2,grayImg);
+		// //bitwise_not(grayImg,grayImg);
+
+		// grayImg=grayImg & desk;
+
+		// findContours(grayImg, contours, hierarchy, CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
+		// for (uint i=0;i<contours.size();i++){
+		// 	myMoments=moments(contours[i]);
+		// 	if(largestArea<myMoments.m00){
+		// 		largestArea=myMoments.m00;
+		// 		largest_contour_idx=i;
+		// 	}
+		// }
+		// final=Mat::zeros(color.rows,color.cols,CV_8U);
+		// drawContours(final,contours,largest_contour_idx ,255,CV_FILLED,8,hierarchy);
+		// imshow("final",final);
+		// if (largestArea>9000)
+		// 	return 1;
+		// else
+		// 	return 0 ;
+		
+//*****COLTH EXTRACTION BASED ON CANNY FILTER**************************
+		cv::Canny(depth8U, cannyTest, thresh1,thresh2);
+		//imshow("cannyOutput",cannyTest);
+		cannyTest=(cannyTest&desk)|deskBorder;
+		kernel=getStructuringElement(MORPH_ELLIPSE, Size(4,4));
+		morphologyEx(cannyTest,cannyTest,MORPH_DILATE,kernel);// to be sure that we will have a closed contour
+
+		//imshow("cannyFiltered",cannyTest);
+		final=cannyTest.clone();
+		findContours(final.clone(), contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
+		for (uint i=0;i<contours.size();i++){
+			if(hierarchy[i][3]>-1 && hierarchy[i][0]>-1 ){
+				myMoments=moments(contours[i]);
+				if(largestArea<myMoments.m00){
+					largestArea=myMoments.m00;
+					largest_contour_idx=i;
+				}
+			}							
+		}
+		final=Mat::zeros(cannyTest.rows,cannyTest.cols,CV_8U);
+		drawContours(final,contours,largest_contour_idx ,255,2,8,hierarchy);
+		//imshow("Biggest contour",final);
+		findContours(final.clone(), contours, hierarchy, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
+		final=Mat::zeros(cannyTest.rows,cannyTest.cols,CV_8U);
+		for (uint i=0;i<contours.size();i++)
+			drawContours(final,contours,i ,255,2,8,hierarchy);
+		imshow("final",final);	
+
+//*****COLTH EXTRACTION BASED ON SNAKE**************************
+		// //calculate desk's contour to initialise the snake
+		// contourSnake=desk.clone();
+		// findContours(contourSnake, snakeInit, hierarchySnake, CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
+		// contourSnake=Mat::zeros(desk.rows,desk.cols,CV_8U);
+		// drawContours(contourSnake,snakeInit,0,255,3,8,hierarchySnake);
+		// //imshow("contourSnake",contourSnake);
+
+
+		// cv::Canny(depth8U, cannyTest, thresh1,thresh2);
+		// cannyTest=cannyTest&desk;
+		// imshow("canny snake",cannyTest);
+		// IplImage* iplimg = new IplImage(cannyTest);
+		// CvPoint* contour_points = new CvPoint[snakeInit[0].size()];
+  //   	for(unsigned int i = 0; i < snakeInit[0].size(); ++i)
+		// 		contour_points[i] = snakeInit[0][i];
+		// // float alpha = 0.1; // Weight of continuity energy
+		// // float beta = 0.9; // Weight of curvature energy
+		// // float gamma = 0.4; // Weight of image energy
+
+		// float alpha = alphaS; // Weight of continuity energy
+		// float beta = betaS; // Weight of curvature energy
+		// float gamma = gammaS; // Weight of image energy
+		// CvTermCriteria criteria;
+		// criteria.type = CV_TERMCRIT_ITER;  // terminate processing after X iteration
+		// criteria.max_iter = 10000; 
+		// criteria.epsilon = 0.01;
+		// cvSnakeImage(iplimg,contour_points,snakeInit[0].size(),&alpha,&beta,&gamma,CV_VALUE,Size(5,5),criteria,0);
+		// final=Mat::zeros(cannyTest.rows,cannyTest.cols,CV_8U);
+		// for(unsigned int i = 0; i < snakeInit[0].size(); ++i)
+  //   	{
+		//         CvPoint pt = contour_points[i];
+		//         final.at<uchar>(pt.y, pt.x) = 255;
+ 	// 	}
+ 	// 	imshow("final",final);
+
+ 		return 0;
+	}
 	void cloudViewer()
 	  {
 	    cv::Mat color, depth;
@@ -678,20 +849,16 @@ void imageViewer()
 	      cv::applyColorMap(tmp, out, cv::COLORMAP_JET);
 	  }
 
-	  void getSidePoints(cv::Mat depth,cv::Mat &in, cv::Mat &rightArmGp, cv::Mat &leftArmGp)//左右の端点を探索
+	  void getSidePoints(cv::Mat depth,cv::Mat &in, cv::Mat rightArmGp, cv::Mat leftArmGp)//左右の端点を探索
 	  {
-	    	cv::Mat tmp = cv::Mat(in.rows, in.cols, CV_8U);
-	    	int rightX = 500,rightY=0;
-	    	int leftX = 0,leftY=0;
+	    cv::Mat tmp = cv::Mat(in.rows, in.cols, CV_8U);
+	    int rightX = 500,rightY=0;
+	    int leftX = 0,leftY=0;
 	   
 
-
-		rightArmGp =Mat::ones(rightArmGp.rows, rightArmGp.cols, CV_64F);//Clear/initialize the vectors
-		leftArmGp  =Mat::ones(leftArmGp.rows, leftArmGp.cols, CV_64F);
-
-
-
-	    
+	   	rightArmGp =Mat::ones(rightArmGp.rows, rightArmGp.cols, CV_64F);//Clear/initialize the vectors
+	    leftArmGp  =Mat::ones(leftArmGp.rows, leftArmGp.cols, CV_64F);
+		
 		//Get the coordinate of the two side points in the image coordinate system (unit:pixels)
 	    for(int r = 0; r < in.rows; ++r){
 			//cout<<"R= "<<r<<endl;
@@ -699,7 +866,7 @@ void imageViewer()
 			for(int c = 0; c < in.cols; ++c, ++itI){
 				//if(r==539)			
 				//cout<<"C="<<c<<endl;
-				if(*itI == 255 && c > 107 && c < 615 && r < 325 && r > 110){// research window in the depth image
+				if(*itI == 255 && c > 200 && c < 700 && r < 325 && r > 110){// research window in the depth image
 					if(rightX > c){
 			    		rightX = c; rightY = r;
 						rightArmGp.at<double>(-1,1)=c;
@@ -830,10 +997,15 @@ void imageViewer()
 
 	    //Tranformation from Kinect Coordinate System to HIRo Coordinate system
 
-		cv::Mat kinectToHIRO =(Mat_<double>(4,4) <<	      	   -0.0830,   -0.9965,   -0.0109,    0.4416,
-	   -0.9965,    0.0829,    0.0070,    0.1177,
-	   -0.0061,    0.0114,   -0.9999,    0.9961,
-	         0,         0,         0,    1.0000);
+		// cv::Mat kinectToHIRO =(Mat_<double>(4,4) <<	      	   -0.0830,   -0.9965,   -0.0109,    0.4416,
+		// 													   -0.9965,    0.0829,    0.0070,    0.1177,
+		// 													   -0.0061,    0.0114,   -0.9999,    0.9961,
+		// 													         0,         0,         0,    1.0000);
+
+		cv::Mat kinectToHIRO =(Mat_<double>(4,4) <<	-0.0830,   -0.9965,   -0.0109,    0.5016,
+													-0.9965,    0.0829,    0.0070,    0.0677,
+													-0.0061,    0.0114,   -0.9999,    0.9461,
+											         0,         0,         0,    1.0000);
 
 		inputPoint = kinectToHIRO * inputPoint;
 
@@ -1138,7 +1310,10 @@ dist_coeffs.at<float>(0,4) = config.camera_params.ir.k3;
 cv::Mat new_camera_matrix = cv::getOptimalNewCameraMatrix(k, dist_coeffs, cv::Size2i(height,width), 0.0);
 
 cv::undistortPoints(cv_img_cords, cv_img_corrected_cords, k, dist_coeffs, cv::noArray(), new_camera_matrix);
-
+		cv::Mat kinectToHIRO =(Mat_<double>(4,4) <<	      	   -0.0830,   -0.9965,   -0.0109,    0.4416,
+															   -0.9965,    0.0829,    0.0070,    0.1177,
+															   -0.0061,    0.0114,   -0.9999,    0.9961,
+															         0,         0,         0,    1.0000);
 
 
 */
