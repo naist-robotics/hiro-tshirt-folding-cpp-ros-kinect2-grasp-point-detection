@@ -293,7 +293,7 @@ class Receiver
 
 void imageViewer()
 	  {
-	    cv::Mat color, depth, depthDisp, combined,cloth,cornersImg;
+	    cv::Mat color, depth, depthDisp, combined,cloth;
 	    cv::Mat depthM;
 
 	    queue<cv::Mat> depthQueue;
@@ -310,19 +310,9 @@ void imageViewer()
 	    const int SIZE_DEPTH_QUEUE = 3;
 	    float depthMax = 900.0f, depthMin = 800.0f;
 	    int Lthresh=817,Hthresh=873,thresh1=25,thresh2=30;
-	    int alp=10,bet=90,gam=40;
 	    Point topLeftPoint=Point(150,135);
 	    Point bottomRightPoint=Point(740,450);
-
-	    //corner detection
-	    int maxCorners = 10;
-	    vector<Point2f> corners;
-  		double qualityLevel = .4;
-  		double minDistance = 20;
-  		int blockSize = 20;
-  		bool useHarrisDetector = false;
-  		double k = 0.04;
-
+	    string shapeCategory;
 
 	    //ソケット通信
 	    cv::Mat rightArmGp=Mat::ones(4 ,1, CV_64F);// vector[x,y,z,1] , the one is needed for calculations below
@@ -339,9 +329,6 @@ void imageViewer()
  		cvCreateTrackbar("Hthresh", "Control", &Hthresh, 1200);
  		cvCreateTrackbar("thresh1", "Control", &thresh1, 1200); //Hue (0 - 179)
  		cvCreateTrackbar("thresh2", "Control", &thresh2, 1200); //Hue (0 - 179)
- 		cvCreateTrackbar("alpha", "Control", &alp, 50);
- 		cvCreateTrackbar("beta", "Control", &bet, 100);
- 		cvCreateTrackbar("gamma", "Control", &gam, 100);
 	    oss << "starting...";
 
 	    start = std::chrono::high_resolution_clock::now();
@@ -397,38 +384,19 @@ void imageViewer()
 
 			cout<<"######################Begining of image processing #######################################"<<endl;
 
-			// cloth=clothShapeDetection(depth,depth_8,thresh1,thresh2);
-   //  		 imshow( "cloth localisation", cloth );
      		 imshow( "color image", color );
-
-   //  		 /// Apply corner detection
-  	// 		goodFeaturesToTrack( cloth,
-   //             corners,
-   //             maxCorners,
-   //             qualityLevel,
-   //             minDistance,
-   //             Mat(),
-   //             blockSize,
-   //             useHarrisDetector,
-   //             k );
-
-
-			//  /// Draw corners detected
-  	// 		cornersImg=color.clone();
-			//  for( int i = 0; i < maxCorners; i++ )
-			//      { circle( cornersImg, corners[i], 4, Scalar(0,0,255), -1, 8, 0 ); }
-
-			//   /// Show what you got
-			//   imshow( "corners", cornersImg );
 
 			//image's points of interest
 			deskHeight.at<double>(1,1)=getDesktopHeight(depth,topLeftPoint,bottomRightPoint);
 			kinectToHIRO(deskHeight);cout<<"Desktop height="<<deskHeight.at<double>(1,1)<<endl;
-			//int ClothOnDesktop= isClothOnDesktop(depth,Lthresh,Hthresh);
-			int ClothOnDesktop=clothShapeDetection(depth,depth_8,color,thresh1,thresh2,alp,float(bet)/100,float(gam)/100);
-			
+
+			cloth=Mat::zeros(depth.rows,depth.cols,CV_8U);
+			int ClothOnDesktop=clothShapeDetection(depth,depth_8,cloth,thresh1,thresh2);
+			imshow( "Cloth shape", cloth );
+
+			shapeCategory=shapeRecognition(cloth);// TO DO: COMPLETE THE FUNCTION AND TRANSMIT THE CATEGORY
+
 			message+="deskHeight "+to_string(deskHeight.at<double>(1,1))+" clothOnDesktop " +to_string(ClothOnDesktop)+ " " ;
-			//message+="deskHeight "+to_string(deskHeight.at<double>(1,1))+" clothOnDesktop " +to_string(0)+ " " ;
 
 			getSidePoints(depth,depth_canny,rightArmGp,leftArmGp); // (find rightmost and leftmost points (within hard-coded limits) in input matrix)
 
@@ -591,97 +559,44 @@ void imageViewer()
 	
 	}
 
-	int isClothOnDesktop(Mat depth,int Lthresh,int Hthresh){
-		//return 1: cloth on desktop
-		//return 0: no cloth  on Desktop
-
-		Mat clothLoc;
-		Mat kernel;
-		vector<vector<Point> > contours;
-  		vector<Vec4i> hierarchy;
-  		double largestArea=0;
-  		Moments myMoments;
-
-  		// cloth presence
-		inRange(depth,Lthresh,Hthresh,clothLoc);
-		kernel=Mat::ones(6,6,CV_8U);
-		morphologyEx(clothLoc,clothLoc,MORPH_ERODE,kernel);
-		kernel=Mat::ones(10,10,CV_8U);
-		morphologyEx(clothLoc,clothLoc,MORPH_DILATE,kernel);
-		//imshow("cloth",clothLoc);
-		findContours( clothLoc, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
-
-		for (uint i=0;i<contours.size();i++){
-
-			myMoments=moments(contours[i]);
-			if(largestArea<myMoments.m00)
-					largestArea=myMoments.m00;
-		}
-
-		
-		if(largestArea>15000)
-			return 1;
-		
-		return 0;
-	}
 	
-	int clothShapeDetection(Mat depth, Mat depth8U,Mat color, int thresh1, int thresh2,float alphaS,float betaS, float gammaS){
-
-		//find the desk
-		Mat desk,kernel,cannyTest,final,contourSnake,grayImg,deskBorder=Mat::zeros(color.rows,color.cols,CV_8U);;
-		vector<vector<Point> > contours,deskContours,snakeInit;
+	int clothShapeDetection(Mat depth, Mat depth8U,Mat &finalShape,int cannyThresh1, int cannyThresh2){
+		// Return 1 if a cloth is on the Desktop
+		// Return 0 otherwise 
+		
+		Mat desk,kernel,cannyTest,biggestContour,deskBorder=Mat::zeros(depth.rows,depth.cols,CV_8U);
+		vector<vector<Point> > contours,deskContours;
   		vector<Vec4i> hierarchy,hierarchyDesk;
   		int largestArea=0,largest_contour_idx=0;
   		Moments myMoments;
 
 
-
+  		//Extract desk shape and it's contour
 		inRange(depth,810,923,desk);
 		kernel=getStructuringElement(MORPH_RECT, Size(20,20));
 		morphologyEx(desk,desk,MORPH_ERODE,kernel);// reduce desktop bordernoise
 		findContours(desk, contours, hierarchy, CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
 		for (uint i=0;i<contours.size();i++)
 				drawContours(desk,contours,i,255,CV_FILLED,8,hierarchy);
-		imshow("Desk",desk);
+			//imshow("Desk",desk);
 		findContours(desk.clone(),deskContours, hierarchyDesk, CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
 		for (uint i=0;i<deskContours.size();i++)
 			drawContours(deskBorder,deskContours,i,255,1,8,hierarchyDesk);
-		//imshow("Desk",desk);
-		
-//*****COLTH EXTRACTION BASED ON SEGMENTATION**************************
-		// cvtColor( color, grayImg, CV_BGR2GRAY );
-		// //equalizeHist( grayImg, grayImg );
-		// inRange(grayImg,thresh1,thresh2,grayImg);
-		// //bitwise_not(grayImg,grayImg);
+			//imshow("Desk",desk);
 
-		// grayImg=grayImg & desk;
-
-		// findContours(grayImg, contours, hierarchy, CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
-		// for (uint i=0;i<contours.size();i++){
-		// 	myMoments=moments(contours[i]);
-		// 	if(largestArea<myMoments.m00){
-		// 		largestArea=myMoments.m00;
-		// 		largest_contour_idx=i;
-		// 	}
-		// }
-		// final=Mat::zeros(color.rows,color.cols,CV_8U);
-		// drawContours(final,contours,largest_contour_idx ,255,CV_FILLED,8,hierarchy);
-		// imshow("final",final);
-		// if (largestArea>9000)
-		// 	return 1;
-		// else
-		// 	return 0 ;
-		
-//*****COLTH EXTRACTION BASED ON CANNY FILTER**************************
-		cv::Canny(depth8U, cannyTest, thresh1,thresh2);
-		//imshow("cannyOutput",cannyTest);
+	
+		//Apply canny filter and target the desk's zone
+		cv::Canny(depth8U, cannyTest, cannyThresh1,cannyThresh2);
+			//imshow("cannyOutput",cannyTest);
 		cannyTest=(cannyTest&desk)|deskBorder;
 		kernel=getStructuringElement(MORPH_ELLIPSE, Size(4,4));
 		morphologyEx(cannyTest,cannyTest,MORPH_DILATE,kernel);// to be sure that we will have a closed contour
+			//imshow("cannyFiltered",cannyTest);
 
-		//imshow("cannyFiltered",cannyTest);
-		final=cannyTest.clone();
-		findContours(final.clone(), contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
+
+		//Locate the biggest contour
+		biggestContour=cannyTest.clone();
+		findContours(biggestContour.clone(), contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
 		for (uint i=0;i<contours.size();i++){
 			if(hierarchy[i][3]>-1 && hierarchy[i][0]>-1 ){
 				myMoments=moments(contours[i]);
@@ -691,52 +606,30 @@ void imageViewer()
 				}
 			}							
 		}
-		final=Mat::zeros(cannyTest.rows,cannyTest.cols,CV_8U);
-		drawContours(final,contours,largest_contour_idx ,255,2,8,hierarchy);
-		//imshow("Biggest contour",final);
-		findContours(final.clone(), contours, hierarchy, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
-		final=Mat::zeros(cannyTest.rows,cannyTest.cols,CV_8U);
+		biggestContour=Mat::zeros(cannyTest.rows,cannyTest.cols,CV_8U);
+		drawContours(biggestContour,contours,largest_contour_idx ,255,2,8,hierarchy);
+		kernel=getStructuringElement(MORPH_ELLIPSE, Size(6,6));
+		morphologyEx(biggestContour,biggestContour,MORPH_DILATE,kernel);// to be sure that we will have a closed contour
+			//imshow("Biggest contour",biggestContour);
+
+		//Just keep the external trac of the biggest contour
+		finalShape=biggestContour.clone();
+		findContours(finalShape.clone(), contours, hierarchy, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
+		finalShape=Mat::zeros(cannyTest.rows,cannyTest.cols,CV_8U);
 		for (uint i=0;i<contours.size();i++)
-			drawContours(final,contours,i ,255,2,8,hierarchy);
-		imshow("final",final);	
-
-//*****COLTH EXTRACTION BASED ON SNAKE**************************
-		// //calculate desk's contour to initialise the snake
-		// contourSnake=desk.clone();
-		// findContours(contourSnake, snakeInit, hierarchySnake, CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
-		// contourSnake=Mat::zeros(desk.rows,desk.cols,CV_8U);
-		// drawContours(contourSnake,snakeInit,0,255,3,8,hierarchySnake);
-		// //imshow("contourSnake",contourSnake);
+			drawContours(finalShape,contours,i ,255,2,8,hierarchy);
+			//imshow("finalShape",finalShape);	
 
 
-		// cv::Canny(depth8U, cannyTest, thresh1,thresh2);
-		// cannyTest=cannyTest&desk;
-		// imshow("canny snake",cannyTest);
-		// IplImage* iplimg = new IplImage(cannyTest);
-		// CvPoint* contour_points = new CvPoint[snakeInit[0].size()];
-  //   	for(unsigned int i = 0; i < snakeInit[0].size(); ++i)
-		// 		contour_points[i] = snakeInit[0][i];
-		// // float alpha = 0.1; // Weight of continuity energy
-		// // float beta = 0.9; // Weight of curvature energy
-		// // float gamma = 0.4; // Weight of image energy
+		if (largestArea>5000)
+			return 1;
+		else
+			return 0 ;
+	}
+	std::string shapeRecognition(Mat inputShape){
 
-		// float alpha = alphaS; // Weight of continuity energy
-		// float beta = betaS; // Weight of curvature energy
-		// float gamma = gammaS; // Weight of image energy
-		// CvTermCriteria criteria;
-		// criteria.type = CV_TERMCRIT_ITER;  // terminate processing after X iteration
-		// criteria.max_iter = 10000; 
-		// criteria.epsilon = 0.01;
-		// cvSnakeImage(iplimg,contour_points,snakeInit[0].size(),&alpha,&beta,&gamma,CV_VALUE,Size(5,5),criteria,0);
-		// final=Mat::zeros(cannyTest.rows,cannyTest.cols,CV_8U);
-		// for(unsigned int i = 0; i < snakeInit[0].size(); ++i)
-  //   	{
-		//         CvPoint pt = contour_points[i];
-		//         final.at<uchar>(pt.y, pt.x) = 255;
- 	// 	}
- 	// 	imshow("final",final);
+		return "nor competed yet";
 
- 		return 0;
 	}
 	void cloudViewer()
 	  {
