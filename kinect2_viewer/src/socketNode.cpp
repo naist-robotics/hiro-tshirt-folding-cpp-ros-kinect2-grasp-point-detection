@@ -46,7 +46,7 @@ class rosTopicManager{
       void graspingPointsCallback(const std_msgs::String::ConstPtr& msg)
       {
         //ROS_INFO("graspingPoints: [%s]", msg->data.c_str());
-        igraspingPoints=msg->data.c_str();   
+        graspingPoints=msg->data.c_str();   
 
       }
       void publishOnNodes(){
@@ -105,7 +105,8 @@ class tcpManager
         vector<char> ReadData;
         client->Read(ReadData); 
         std::string str(ReadData.begin(),ReadData.end()); 
-        return "Received";
+        //cout << "Received via TCP: " << str << endl;
+        return str;
       }
  
 
@@ -127,34 +128,36 @@ int main(int argc, char **argv)
 
   ros::NodeHandle n;
   rosInterface.imgInfoTopic_sub = n.subscribe("kinect2_viewer/imgInfoTopic", 100,&rosTopicManager::imgInfoTopicCallback, &rosInterface);
-  rosInterface.imgInfoTopic_sub = n.subscribe("category", 100,&rosTopicManager::categoryCallback, &rosInterface);
-  rosInterface.imgInfoTopic_sub = n.subscribe("graspingPoints", 100,&rosTopicManager::graspingPointsCallback, &rosInterface);
+  // rosInterface.imgInfoTopic_sub = n.subscribe("category", 100,&rosTopicManager::categoryCallback, &rosInterface);
+  // rosInterface.imgInfoTopic_sub = n.subscribe("graspingPoints", 100,&rosTopicManager::graspingPointsCallback, &rosInterface);
   rosInterface.request_pub = n.advertise<std_msgs::String>("request", 100);
   ros::spinOnce();
+  string test;
 
      while(1){
       //transfert from TCP to ros topic
-      cout<<"transfert from TCP to ros topic"<<endl;
-      //rosInterface.request=tcpInterface.receiveTCP();
+      cout<<"transfer from TCP to ros topic"<<endl;
+      test=tcpInterface.receiveTCP();
+      cout<<test<<endl;
       rosInterface.publishOnNodes();
       //transfert from ros topic to TCP
       cout<<"transfert from ros topic to TCP"<<endl;
       if(rosInterface.category!="")
       { tcpInterface.sendTCP(rosInterface.category);
-        category="";}
+        rosInterface.category="";}
       if(rosInterface.graspingPoints!="")
       { tcpInterface.sendTCP(rosInterface.graspingPoints);
-        graspingPoints="";}
+        rosInterface.graspingPoints="";}
       if(tcpInterface.sendTCP(rosInterface.imgInfoTopic)<=0){
         cout<<"Trying to reconnect"<<endl;
         tcpInterface.reconnectSocket(); 
       }
-
+      
       //Display
-      cout<<"Request:"<< rosInterface.request<<endl;
+      cout<<"Request,Received via TCP:"<< rosInterface.request<<endl;
       cout<<"imgInfoTopic:"<<rosInterface.imgInfoTopic<<endl;
-      cout<<"Category:"<<rosInterface.category<<endl;
-      cout<<"graspingPoints:"<<rosInterface.graspingPoints<<endl;
+      cout<<"CategoryTopic:"<<rosInterface.category<<endl;
+      cout<<"graspingPointsTopic:"<<rosInterface.graspingPoints<<endl;
       std::chrono::milliseconds duration(100);
       std::this_thread::sleep_for(duration);
      }

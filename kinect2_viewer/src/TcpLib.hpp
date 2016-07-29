@@ -60,7 +60,8 @@ class TcpMaster{
       }
 
       //データの受信
-      const int MAX_READ_BUF=22800;
+      //const int MAX_READ_BUF=22800;
+      const int MAX_READ_BUF=20;
       char RecBuf[MAX_READ_BUF];//受信バッファ
 
       //データの受信
@@ -303,6 +304,12 @@ class TcpServer:public TcpMaster{
       //サーバを切った後にTIME WAIT状態にしなくするおまじない
       int yes=1;
       setsockopt(selfSock_,SOL_SOCKET,SO_REUSEADDR,(const char *)&yes,sizeof(yes));
+
+      // Testing timeout function
+      struct timeval tv;
+      tv.tv_sec = 2;
+      tv.tv_usec = 0;
+      setsockopt(selfSock_,SOL_SOCKET,SO_RCVTIMEO,(char *)&tv,sizeof(struct timeval));
 
       //サーバの設定(bind)
       int statBind=bind(selfSock_, (struct sockaddr *)&server,sizeof(server));
