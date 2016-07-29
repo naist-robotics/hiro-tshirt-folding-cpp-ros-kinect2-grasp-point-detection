@@ -25,7 +25,10 @@
 #include <mutex>
 #include <thread>
 #include <chrono>
- #include <queue>
+#include <queue>
+
+#include "std_msgs/String.h"
+#include <sstream>
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -39,7 +42,7 @@
 
 #include <ros/ros.h>
 #include <ros/spinner.h>
-#include <sensor_msgs/CameraInfo.h>
+#include <sensor_msgs/CameraInfo.h>  
 #include <sensor_msgs/Image.h>
 
 #include <cv_bridge/cv_bridge.h>
@@ -54,10 +57,8 @@
 
 #include <kinect2_bridge/kinect2_definitions.h>
 
-#include "TcpLib.hpp"
 
-#define IPADDRESS "163.221.44.226"
-#define PORTNUM 3794
+
 
 //######Kinect IR intrinsic parameters##################
 //#define au 356.055 * 960/512	// pixels	
@@ -102,9 +103,8 @@ class Receiver
 	    CLOUD,
 	    BOTH
 	  };
-
+	  
 	private:
-	  TcpClient* client;//ソケット通信のクライアント「client」を作成
 
 	  std::mutex lock;
 
@@ -156,9 +156,6 @@ class Receiver
 	      params.push_back(cv::IMWRITE_PNG_STRATEGY);
 	      params.push_back(cv::IMWRITE_PNG_STRATEGY_RLE);
 	      params.push_back(0);
-	      // Init communication
-	      this->client = new TcpClient;
-		  client->Init(IPADDRESS, PORTNUM);
 	    }
 
 	  ~Receiver()
@@ -172,22 +169,14 @@ class Receiver
 	  }
 
 	private:
-		bool reconnectSocket(){
-
-			delete client;
-			std::chrono::milliseconds duration(1500);
-		    std::this_thread::sleep_for(duration);
-			this->client = new TcpClient;
-			return client->Init(IPADDRESS, PORTNUM);
-
-		}
 
 		void start(const Mode mode){
 		    this->mode = mode;
 		    running = true;
 
 
-		    std::string topicCameraInfoColor = topicColor.substr(0, topicColor.rfind('/')) + "/camera_info";
+
+  		    std::string topicCameraInfoColor = topicColor.substr(0, topicColor.rfind('/')) + "/camera_info";
 		    std::string topicCameraInfoDepth = topicDepth.substr(0, topicDepth.rfind('/')) + "/camera_info";
 
 		    image_transport::TransportHints hints(useCompressed ? "compressed" : "raw");
@@ -293,6 +282,12 @@ class Receiver
 
 void imageViewer()
 	  {
+
+	    ros::Publisher imgInfoTopic_pub;
+		imgInfoTopic_pub = nh.advertise<std_msgs::String>("imgInfoTopic", 1000);
+		image_transport::ImageTransport it(nh);
+  		image_transport::Publisher imgPublisher = it.advertise("extratedContour", 1);
+		   
 	    cv::Mat color, depth, depthDisp, combined,cloth;
 	    cv::Mat depthM;
 
@@ -314,7 +309,7 @@ void imageViewer()
 	    Point bottomRightPoint=Point(740,450);
 	    string shapeCategory;
 
-	    //ソケット通信
+	    
 	    cv::Mat rightArmGp=Mat::ones(4 ,1, CV_64F);// vector[x,y,z,1] , the one is needed for calculations below
 	    cv::Mat leftArmGp=Mat::ones(4 ,1, CV_64F);
 	    cv::Mat deskHeight=Mat::ones(4 ,1, CV_64F);
@@ -342,7 +337,9 @@ void imageViewer()
 	        updateImage = false;
 	        lock.unlock();
 
-	        string message;
+	       
+	        std_msgs::String msg;
+    		std::stringstream ss;
 			//メディアンを用いた平滑化
 			cv::medianBlur(depth, depthM, 3);
 			if(depthQueue.size()<SIZE_DEPTH_QUEUE){
@@ -384,7 +381,7 @@ void imageViewer()
 
 			cout<<"######################Begining of image processing #######################################"<<endl;
 
-     		 imshow( "color image", color );
+     		//imshow( "color image", color );
 
 			//image's points of interest
 			deskHeight.at<double>(1,1)=getDesktopHeight(depth,topLeftPoint,bottomRightPoint);
@@ -392,11 +389,9 @@ void imageViewer()
 
 			cloth=Mat::zeros(depth.rows,depth.cols,CV_8U);
 			int ClothOnDesktop=clothShapeDetection(depth,depth_8,cloth,thresh1,thresh2);
-			imshow( "Cloth shape", cloth );
+			//imshow( "Cloth shape", cloth );
 
 			shapeCategory=shapeRecognition(cloth);// TO DO: COMPLETE THE FUNCTION AND TRANSMIT THE CATEGORY
-
-			message+="deskHeight "+to_string(deskHeight.at<double>(1,1))+" clothOnDesktop " +to_string(ClothOnDesktop)+ " " ;
 
 			getSidePoints(depth,depth_canny,rightArmGp,leftArmGp); // (find rightmost and leftmost points (within hard-coded limits) in input matrix)
 
@@ -456,40 +451,28 @@ void imageViewer()
 			//cv::imshow("can2", can2);
 			//cv::imshow("can3", can3);
 			//cv::imshow("can4", can4);
-
-			//Send the two sidepoints to HIRO
-			message += "sidePoints";
-			for (int i=0;i<rightArmGp.rows-1;i++) 
-				message=message + " " + to_string(rightArmGp.at<double>(i-1,1))+ " " + to_string(leftArmGp.at<double>(i-1,1));
 			
+			// build and publish message on imgInfoTopic
+			ss<<" deskHeight "<<to_string(deskHeight.at<double>(1,1))<<" clothOnDesktop " <<to_string(ClothOnDesktop)<<" " ;
+			ss<< "sidePoints";
+			for (int i=0;i<rightArmGp.rows-1;i++) 
+				ss << " " << to_string(rightArmGp.at<double>(i-1,1))<< " " + to_string(leftArmGp.at<double>(i-1,1));
+			msg.data = ss.str();
+			imgInfoTopic_pub.publish(msg);
+			ros::spinOnce();
+			cout<<"topic:"<<imgInfoTopic_pub.getTopic()<<endl;
+			cout<<"SS:"<<msg.data <<endl;
 			//cout<<"COORDINATES TRANSFERT========================="<<endl;	
 			//cout<<"rightArmGpHIRO"<<endl<<rightArmGp<<endl;
 			//cout<<"leftArmGpHIRO"<<endl<<leftArmGp<<endl;
-			//cout<<"message:"<<message<<endl;
+
+
+			// build and publish the contour image on imgInfoTopic
+			sensor_msgs::ImagePtr imgMsg = cv_bridge::CvImage(std_msgs::Header(), "mono8", cloth).toImageMsg();
+			imgPublisher.publish(imgMsg);
+    		ros::spinOnce();
 		
-			
-			// Send Data through ethernet
-			cout<<"Message:"<<message<<endl;
-			int sendSuccess=sendTCP(message);
-			cout<<"sendSuccess:"<<sendSuccess<<endl;
-
-
-			//Receive Data from the ethernet
-			//char nSend = receiveTCP();
-			vector<char> ReadData;
-			client->Read(ReadData);
-			for (std::vector<char>::const_iterator i = ReadData.begin(); i != ReadData.end(); ++i)
-    			std::cout << *i;
-			cout << "<- = contents of ReadData." << endl;
-
-		
-			if ((sendSuccess)<=0){
-			 	std::cout << "Trying to reconnect. flag: " << sendSuccess << std::endl;
-			 	reconnectSocket();
-
-			 }
-		
-	      }
+	       }
 
 	      int key = cv::waitKey(1);
 	      switch(key & 0xFF)
@@ -516,20 +499,6 @@ void imageViewer()
 	    cv::waitKey(100);
 	  }
 
-	int sendTCP (string message){
-		vector<char> SendData;
-		for(int i = 0; i < int(message.size()); i++){
-			  SendData.push_back(message[i]);
-		}
-		return client->Write(SendData);//送信
-
-	}
-
-	vector<char> receiveTCP(){
-			vector<char> ReadData;
-			client->Read(ReadData);
-			return ReadData;
-	}
 
 	float getDesktopHeight(Mat depth,Point topLeftPoint, Point bottomRightPoint){
 		// compute desktop height using the median of a cloud point
@@ -617,7 +586,7 @@ void imageViewer()
 		findContours(finalShape.clone(), contours, hierarchy, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
 		finalShape=Mat::zeros(cannyTest.rows,cannyTest.cols,CV_8U);
 		for (uint i=0;i<contours.size();i++)
-			drawContours(finalShape,contours,i ,255,2,8,hierarchy);
+			drawContours(finalShape,contours,i ,255,2,8,hierarchy);;
 			//imshow("finalShape",finalShape);	
 
 
@@ -1032,7 +1001,8 @@ int main(int argc, char **argv)
   }
 #endif
 
-  ros::init(argc, argv, "kinect2_viewer", ros::init_options::AnonymousName);
+  //ros::init(argc, argv, "kinect2_viewer", ros::init_options::AnonymousName);
+	ros::init(argc, argv, "kinect2_viewer");
 
   if(!ros::ok())
   {

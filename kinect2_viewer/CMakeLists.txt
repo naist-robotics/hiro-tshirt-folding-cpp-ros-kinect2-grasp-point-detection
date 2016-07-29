@@ -151,6 +151,36 @@ target_link_libraries(socketTestViewer
   ${kinect2_bridge_LIBRARIES}
 )
 
+add_executable(viewerCustom src/viewerCustom.cpp)
+target_link_libraries(viewerCustom
+  ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+  ${PCL_LIBRARIES}
+  ${kinect2_bridge_LIBRARIES}
+)
+
+add_executable(socketNode src/socketNode.cpp)
+target_link_libraries(socketNode
+  ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+  ${PCL_LIBRARIES}
+  ${kinect2_bridge_LIBRARIES}
+)
+
+add_executable(publisher src/publisher.cpp)
+target_link_libraries(publisher
+  ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+  ${PCL_LIBRARIES}
+  ${kinect2_bridge_LIBRARIES}
+)
+add_executable(recognitionNode src/recognitionNode.cpp)
+target_link_libraries(recognitionNode
+  ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+  ${PCL_LIBRARIES}
+  ${kinect2_bridge_LIBRARIES}
+)
 #############
 ## Install ##
 #############
