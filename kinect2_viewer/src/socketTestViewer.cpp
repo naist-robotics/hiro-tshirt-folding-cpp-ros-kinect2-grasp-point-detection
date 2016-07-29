@@ -551,23 +551,24 @@ void imageViewer()
 		findContours(desk.clone(),deskContours, hierarchyDesk, CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
 		for (uint i=0;i<deskContours.size();i++)
 			drawContours(deskBorder,deskContours,i,255,1,8,hierarchyDesk);
-			//imshow("Desk",desk);
+			imshow("Desk",desk);
 
 	
 		//Apply canny filter and target the desk's zone
 		cv::Canny(depth8U, cannyTest, cannyThresh1,cannyThresh2);
-			//imshow("cannyOutput",cannyTest);
+			imshow("cannyOutput",cannyTest);
 		cannyTest=(cannyTest&desk)|deskBorder;
 		kernel=getStructuringElement(MORPH_ELLIPSE, Size(4,4));
 		morphologyEx(cannyTest,cannyTest,MORPH_DILATE,kernel);// to be sure that we will have a closed contour
-			//imshow("cannyFiltered",cannyTest);
+			imshow("cannyFiltered",cannyTest);
 
 
 		//Locate the biggest contour
 		biggestContour=cannyTest.clone();
-		findContours(biggestContour.clone(), contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
+		findContours(biggestContour, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
+
 		for (uint i=0;i<contours.size();i++){
-			if(hierarchy[i][3]>-1 && hierarchy[i][0]>-1 ){
+			if(hierarchy[i][3]>0){
 				myMoments=moments(contours[i]);
 				if(largestArea<myMoments.m00){
 					largestArea=myMoments.m00;
@@ -576,10 +577,10 @@ void imageViewer()
 			}							
 		}
 		biggestContour=Mat::zeros(cannyTest.rows,cannyTest.cols,CV_8U);
-		drawContours(biggestContour,contours,largest_contour_idx ,255,2,8,hierarchy);
+		drawContours(biggestContour,contours,largest_contour_idx ,255,2,2,hierarchy);
 		kernel=getStructuringElement(MORPH_ELLIPSE, Size(6,6));
 		morphologyEx(biggestContour,biggestContour,MORPH_DILATE,kernel);// to be sure that we will have a closed contour
-			//imshow("Biggest contour",biggestContour);
+			imshow("Biggest contour",biggestContour);
 
 		//Just keep the external trac of the biggest contour
 		finalShape=biggestContour.clone();
@@ -587,7 +588,7 @@ void imageViewer()
 		finalShape=Mat::zeros(cannyTest.rows,cannyTest.cols,CV_8U);
 		for (uint i=0;i<contours.size();i++)
 			drawContours(finalShape,contours,i ,255,2,8,hierarchy);;
-			//imshow("finalShape",finalShape);	
+			imshow("finalShape",finalShape);	
 
 
 		if (largestArea>5000)
