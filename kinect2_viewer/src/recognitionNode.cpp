@@ -56,7 +56,7 @@ class recognizer
               break;}
             cout<<"filename:"<<filename<<endl;           
             reference.push_back(tmp);
-            imshow(filename,tmp);
+            //imshow(filename,tmp);
 
             index++;
             
@@ -91,16 +91,48 @@ class recognizer
  
   void imageCallback(const sensor_msgs::ImageConstPtr& msg)
   {
+    Mat image;
+    vector<vector<Point> > contours;
+    vector<Vec4i> hierarchy;
+    RNG rng(12345);
+    Scalar color = Scalar( rng.uniform(0, 255), rng.uniform(0,255), rng.uniform(0,255) );
+    //recceive image from topic
     try
      {
-       cv::imshow("view", cv_bridge::toCvShare(msg, "mono8")->image);
+       //cv::imshow("view", cv_bridge::toCvShare(msg, "mono8")->image);
        cv::waitKey(30);
-       target= cv_bridge::toCvShare(msg, "mono8")->image;
+       image= cv_bridge::toCvShare(msg, "mono8")->image;
      }
      catch (cv_bridge::Exception& e)
      {
        ROS_ERROR("Could not convert from '%s' to 'bgr8'.", msg->encoding.c_str());
      }
+     //find the contour and find the bounding box
+    findContours( image, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
+    vector<Rect> boundRect( contours.size() );
+    for( uint i = 0; i < contours.size(); i++ )
+       boundRect[i] = boundingRect( Mat(contours[i]) );
+
+    //rectangle( image, boundRect[0].tl(), boundRect[0].br(), color, 2, 8, 0 );
+   // imshow( "Boudingbox", image );
+    //enlarge your bounding box
+    Point offset= Point(30,30);
+ 
+
+    Rect bigBoundingBox= Rect( boundRect[0].tl()-offset,boundRect[0].br()+offset);
+    rectangle( image, bigBoundingBox.tl(), bigBoundingBox.br(), color, 2, 8, 0 );
+    //imshow( "BigBoudingbox", image );
+    //crop the image
+    cv::Mat croppedRef(image, bigBoundingBox);
+    cv::Mat cropped;
+    // Copy the data into new matrix
+    croppedRef.copyTo(cropped);
+    imshow( "Croped image", cropped );
+
+    //cout<<"Cropped image size"<<cropped.size()<<endl;
+
+     target=cropped;
+
   }
   void requestCallback(const std_msgs::String::ConstPtr& msg)
   {
@@ -139,6 +171,8 @@ int main(int argc, char **argv)
   ros::Subscriber request_sub = nh.subscribe("request", 1000, &recognizer::requestCallback,&TshirtAnalyzer);
   TshirtAnalyzer.category_pub = nh.advertise<std_msgs::String>("category", 100);
   TshirtAnalyzer.graspingPoints_pub = nh.advertise<std_msgs::String>("graspingPoints", 100);
+
+  TshirtAnalyzer.loadReference();
 
   ros::spin();
   cv::destroyWindow("view");
