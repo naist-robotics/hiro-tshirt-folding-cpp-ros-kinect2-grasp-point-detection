@@ -308,6 +308,8 @@ void imageViewer()
 	    Point topLeftPoint=Point(150,135);
 	    Point bottomRightPoint=Point(740,450);
 	    string shapeCategory;
+	    // string filename;
+	    // int fileindex=301;
 
 	    
 	    cv::Mat rightArmGp=Mat::ones(4 ,1, CV_64F);// vector[x,y,z,1] , the one is needed for calculations below
@@ -389,7 +391,7 @@ void imageViewer()
 
 			cloth=Mat::zeros(depth.rows,depth.cols,CV_8U);
 			int ClothOnDesktop=clothShapeDetection(depth,depth_8,cloth,thresh1,thresh2);
-			//imshow( "Cloth shape", cloth );
+			imshow( "Cloth shape", cloth );
 
 
 			getSidePoints(depth,depth_canny,rightArmGp,leftArmGp); // (find rightmost and leftmost points (within hard-coded limits) in input matrix)
@@ -450,6 +452,13 @@ void imageViewer()
 			//cv::imshow("can2", can2);
 			//cv::imshow("can3", can3);
 			//cv::imshow("can4", can4);
+
+			// Image acquisition pressing a key
+			// if(waitKey(100)!=-1){
+			// 	filename="edge"+to_string(fileindex)+".png";
+			// 	imwrite(filename, cloth);
+			// 	fileindex++;
+			// }
 			
 			// build and publish message on imgInfoTopic
 			ss<<" deskHeight "<<to_string(deskHeight.at<double>(1,1))<<" clothOnDesktop " <<to_string(ClothOnDesktop)<<" " ;
@@ -557,23 +566,26 @@ void imageViewer()
 		cv::Canny(depth8U, cannyTest, cannyThresh1,cannyThresh2);
 			//imshow("cannyOutput",cannyTest);
 		cannyTest=(cannyTest&desk);//|deskBorder;
-		kernel=getStructuringElement(MORPH_ELLIPSE, Size(4,4));
+		kernel=getStructuringElement(MORPH_ELLIPSE, Size(6,6));
 		morphologyEx(cannyTest,cannyTest,MORPH_DILATE,kernel);// to be sure that we will have a closed contour
-			//mshow("cannyFiltered",cannyTest);
+			//imshow("cannyFiltered",cannyTest);
 
 
 		//Locate the biggest contour
 		biggestContour=cannyTest.clone();
 		findContours(biggestContour, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
-
+		for (uint i=0;i<contours.size();i++)
+			drawContours(biggestContour,contours,i ,255,CV_FILLED,8,hierarchy);
+	
+		findContours(biggestContour, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
 		for (uint i=0;i<contours.size();i++){
-			if(hierarchy[i][3]>0){
+			//if(hierarchy[i][3]>0){
 				myMoments=moments(contours[i]);
 				if(largestArea<myMoments.m00){
 					largestArea=myMoments.m00;
 					largest_contour_idx=i;
 				}
-			}							
+			//}							
 		}
 		biggestContour=Mat::zeros(cannyTest.rows,cannyTest.cols,CV_8U);
 		drawContours(biggestContour,contours,largest_contour_idx ,255,2,2,hierarchy);

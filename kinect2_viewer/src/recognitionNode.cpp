@@ -22,12 +22,17 @@ class recognizer
     ros::Publisher category_pub;
     ros::Publisher graspingPoints_pub;
   private:
+    // informations about the references
     vector<Mat> reference;
-    Mat target;
-    vector<Mat> GraspingP;
     std::vector<string> category={"A","B","C","none"};
     string path="/home/robotics/catkin_ws/devel/lib/kinect2_viewer/";
     string refFolder="Reference/";
+    // Target
+    Mat target;
+    Point anchorTarget;
+    //Output
+    vector<Mat> GraspingP;
+
 
   //methods
   public:  
@@ -99,7 +104,7 @@ class recognizer
     //recceive image from topic
     try
      {
-       //cv::imshow("view", cv_bridge::toCvShare(msg, "mono8")->image);
+       cv::imshow("view", cv_bridge::toCvShare(msg, "mono8")->image);
        cv::waitKey(30);
        image= cv_bridge::toCvShare(msg, "mono8")->image;
      }
@@ -121,6 +126,7 @@ class recognizer
 
     Rect bigBoundingBox= Rect( boundRect[0].tl()-offset,boundRect[0].br()+offset);
     rectangle( image, bigBoundingBox.tl(), bigBoundingBox.br(), color, 2, 8, 0 );
+    anchorTarget=bigBoundingBox.tl();
     //imshow( "BigBoudingbox", image );
     //crop the image
     cv::Mat croppedRef(image, bigBoundingBox);
@@ -172,7 +178,7 @@ int main(int argc, char **argv)
   TshirtAnalyzer.category_pub = nh.advertise<std_msgs::String>("category", 100);
   TshirtAnalyzer.graspingPoints_pub = nh.advertise<std_msgs::String>("graspingPoints", 100);
 
-  TshirtAnalyzer.loadReference();
+  //TshirtAnalyzer.loadReference();
 
   ros::spin();
   cv::destroyWindow("view");
