@@ -21,8 +21,8 @@ class rosTopicManager{
 
   public:
       ros::Subscriber imgInfoTopic_sub ;
-      ros::Publisher request_pub;
-      string imgInfoTopic,request,category,graspingPoints;
+      ros::Publisher msgTCP_pub;
+      string imgInfoTopic,msgTCP,category,graspingPoints;
 
 
 
@@ -51,9 +51,9 @@ class rosTopicManager{
       }
       void publishOnNodes(){
         std_msgs::String msg;
-        msg.data = request;
+        msg.data = msgTCP;
 
-        request_pub.publish(msg);
+        msgTCP_pub.publish(msg);
         ros::spinOnce();
       }
 
@@ -130,15 +130,15 @@ int main(int argc, char **argv)
   rosInterface.imgInfoTopic_sub = n.subscribe("kinect2_viewer/imgInfoTopic", 100,&rosTopicManager::imgInfoTopicCallback, &rosInterface);
   // rosInterface.imgInfoTopic_sub = n.subscribe("category", 100,&rosTopicManager::categoryCallback, &rosInterface);
   // rosInterface.imgInfoTopic_sub = n.subscribe("graspingPoints", 100,&rosTopicManager::graspingPointsCallback, &rosInterface);
-  rosInterface.request_pub = n.advertise<std_msgs::String>("request", 100);
+  rosInterface.msgTCP_pub = n.advertise<std_msgs::String>("msgTCP", 100);
   ros::spinOnce();
   string test;
 
      while(1){
       //transfert from TCP to ros topic
       cout<<"transfer from TCP to ros topic"<<endl;
-      test=tcpInterface.receiveTCP();
-      cout<<test<<endl;
+      rosInterface.msgTCP=tcpInterface.receiveTCP();
+      cout<<rosInterface.msgTCP<<endl;
       rosInterface.publishOnNodes();
       //transfert from ros topic to TCP
       cout<<"transfert from ros topic to TCP"<<endl;
@@ -154,7 +154,7 @@ int main(int argc, char **argv)
       }
       
       //Display
-      cout<<"Request,Received via TCP:"<< rosInterface.request<<endl;
+      cout<<"msgTCP,Received via TCP:"<< rosInterface.msgTCP<<endl;
       cout<<"imgInfoTopic:"<<rosInterface.imgInfoTopic<<endl;
       cout<<"CategoryTopic:"<<rosInterface.category<<endl;
       cout<<"graspingPointsTopic:"<<rosInterface.graspingPoints<<endl;

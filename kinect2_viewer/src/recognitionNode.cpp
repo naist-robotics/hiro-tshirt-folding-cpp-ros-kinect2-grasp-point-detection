@@ -6,188 +6,342 @@
 #include <image_transport/image_transport.h>
 #include <cv_bridge/cv_bridge.h>
 #include <stdlib.h>
+#include <fstream>
 #include <stdio.h>
 #include <vector>
+#include <fstream>
 #include <string>
 #include "ros/ros.h"
 #include "std_msgs/String.h"
 
 using namespace std;
 using namespace cv;
+
+string path="/home/robotics/catkin_ws/src/iai_kinect2/kinect2_viewer/src/";
+string refFolder="Reference/";
+
+
 class recognizer
 {
-  // attributs
-  public:
-    string categoryFound,outputGP,request;
-    ros::Publisher category_pub;
-    ros::Publisher graspingPoints_pub;
-  private:
-    // informations about the references
-    vector<Mat> reference;
-    std::vector<string> category={"A","B","C","none"};
-    string path="/home/robotics/catkin_ws/devel/lib/kinect2_viewer/";
-    string refFolder="Reference/";
-    // Target
-    Mat target;
-    Point anchorTarget;
-    //Output
-    vector<Mat> GraspingP;
+// attributs
+public:
+string categoryFound,outputGP;
+ros::Publisher category_pub;
+ros::Publisher graspingPoints_pub;
+ros::Publisher sidePoints_pub;
+private:
+// informations about the references
+Mat contourRef,contourData,dataGravityCentergroundTruth;
 
 
-  //methods
-  public:  
-    recognizer()
+// Target
+Mat target;
+Point anchorTarget;
+//Output
+vector<Mat> GraspingP;
+
+
+//methods
+
+private:
+int polarContourClassification(Mat dataSet, Mat groundTruth, Mat inputPolarC)
+{
+  return 0;
+}
+int gravityCenterClassification( Mat learningSet, Mat groundTruth, Mat inputPolar, int neighbourNum )
+{
+    return 0;
+}
+void getImgInfos( Mat inputImg, Mat &gravityCenter, Mat &polarContour )
+{
+
+}
+string classification(Mat image, Rect boundingBox){
+  Scalar color=cv::Scalar(255,0,0);
+  //enlarge your bounding box
+  Point offset= Point(30,30);
+  Point tl=boundingBox.tl()-offset;
+  Point br=boundingBox.br()+offset;
+  Rect bound = Rect(Point(0,0),Point(image.cols,image.rows));
+  cv::Mat cropped;
+
+  if (tl.inside(bound) && br.inside(bound)){
+
+      Rect bigBoundingBox= Rect(tl,br);
+      cv::rectangle( image, bigBoundingBox.tl(), bigBoundingBox.br(), color, 2, 8, 0 );
+      anchorTarget=bigBoundingBox.tl();
+      //imshow( "BigBoudingbox", image );
+      //crop the image
+      cv::Mat croppedRef(image, bigBoundingBox);
+
+      // Copy the data into new matrix
+      croppedRef.copyTo(cropped);
+      resize(cropped.clone(), cropped, Size(300,300), 0, 0);
+  }
+  else
+      cropped=Mat::zeros(300,300,CV_8U);
+
+  imshow( "Croped image", cropped );
+
+
+  if(gravityCenterClassification( learningSet, groundTruth, inputPolar, neighbourNum )<4)
+  {
+    switch(polarContourClassification( learningSet, groundTruth, inputPolar, neighbourNum ))
     {
-    }  
+      case 1: return"A";
+              break;
+      case 2: return "B";
+              break;
+      case 3: return "C";
+              break;
+      default: return "none";
+    }
+  }
+  else
+    cout<<"classification out of bounds"<<endl;
 
-    ~recognizer()
+  return "0";
+}
+
+string getGraspingPoints(Mat image){
+  vector<vector<Point> > contours;
+  vector<Vec4i> hierarchy;
+  string message;
+  RNG rng(12345);
+  Scalar color = Scalar( rng.uniform(0, 255), rng.uniform(0,255), rng.uniform(0,255) );
+
+
+  //find the contour and find the bounding box
+  findContours( image.clone(), contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
+  vector<Rect> boundRect( contours.size() );
+  for( uint i = 0; i < contours.size(); i++ )
+     boundRect[i] = boundingRect( Mat(contours[i]) );
+
+  //rectangle( image, boundRect[0].tl(), boundRect[0].br(), color, 2, 8, 0 );
+  //imshow( "Boudingbox", image );
+  Point tl=boundingBox[0].tl();
+  Point br=boundingBox[0].br();
+  Point Gp1,Gp2;
+  switch(classification(image,boundRect[0]))
+  {
+      case "A": // grasp the bottom and leftmost point
+                Gp1=tl;
+                Gp2=Point(br.x,0);
+                while (image.at<uint8_t>(Gp2)<=0)
+                      Gp2.y++;
+              break;
+      case "B": //grasp shoulders approx :GP1 on x=tl.x+(br.x-tl.x)/4   GP2 on x=br.x-(br.x-tl.x)/4
+                Gp1=Point(tl.x+(br.x-tl.x)/4,0);
+                Gp2=Point(br.x-(br.x-tl.x)/4,0);
+                while (image.at<uint8_t>(Gp1)<=0)
+                      Gp1.y++;
+                while (image.at<uint8_t>(Gp2)<=0)
+                      Gp2.y++;
+              break;
+      case "C":// grasp bottom and rightmost point 
+                Gp1=Point(br.x,0); 
+                while (image.at<uint8_t>(Gp2)<=0)
+                      Gp1.y++;
+                Gp2=Point(tl.x,br.y)
+              break;
+      default:       
+  }
+
+  //circle grasping points
+  cv::circle(image, Gp1, 10, cv::Scalar(255,0,0), 2, 4);
+  cv::circle(image, Gp2, 10, cv::Scalar(255,0,0), 2, 4);
+
+  sprintf(message,"%s %s %s","graspingPoints",Gp1,Gp2);
+}  
+
+Mat textFile2Mat(String filename, int rowNum, int colNum)
+{
+  char globalPath[100];
+  string delimiter = ",";
+  int rows=0;
+  int cols=0;
+  vector<vector<float> > output;//=Mat::zeros(rowNum,colNum,CV_32F);
+
+ ifstream myReadFile;
+ sprintf(globalPath,"%s%s%s",path.c_str(),refFolder.c_str(),filename.c_str());
+ myReadFile.open(globalPath);
+ std::string token,line;
+ string::size_type sz; 
+ if (myReadFile.is_open()) {
+   while(!myReadFile.eof()) // To get you all the lines.
     {
-    }
+      getline(myReadFile,line,'\n'); // Saves the line in STRING.
+      //cout<<"line:"<<line<<endl;
 
-    void loadReference(){
+      stringstream ss(line);
+      string item;
 
-      Mat tmp;
-      int index;
-      char filename[100];
-
-      for(uint i=0; i < category.size()-1;i++){
-          cout<<"Category:"<<category[i]<<endl;
-          index=1;
-          while(1){  
-            sprintf(filename,"%s%s%s%d.png",path.c_str(),refFolder.c_str(),category[i].c_str(),index);
-            tmp=imread(filename,CV_LOAD_IMAGE_GRAYSCALE);
-            if(!tmp.data ){ 
-
-              break;}
-            cout<<"filename:"<<filename<<endl;           
-            reference.push_back(tmp);
-            //imshow(filename,tmp);
-
-            index++;
-            
-          }
+      while (getline(ss, item, ',')) {
+          //cout<<item<<endl;
+          output.at<float>(rows,cols) =stof(item,&sz) ;
+          cols++;
       }
+      cols=0;
+      rows++;
+
+
+
 
     }
-  void loadGraspingPoint(string filename){
-
-  }  
-
-  void detectCategory(){
-    //categoryFound=...
-    categoryFound="categoryFound";
   }
-  void getGraspingPoints(){
-    // deformation(target)
-    outputGP="Test grasping points";
-  }
-  void setpath(string newPath)
-  {
-    path=newPath;
-  }
-  void publishOnNodes(){
-    std_msgs::String msg;
-    msg.data = categoryFound;
-    category_pub.publish(msg);
-    msg.data = outputGP;
-    graspingPoints_pub.publish(msg);
-    ros::spinOnce();
-      }
- 
-  void imageCallback(const sensor_msgs::ImageConstPtr& msg)
-  {
-    Mat image;
-    vector<vector<Point> > contours;
-    vector<Vec4i> hierarchy;
-    RNG rng(12345);
-    Scalar color = Scalar( rng.uniform(0, 255), rng.uniform(0,255), rng.uniform(0,255) );
-    //recceive image from topic
-    try
-     {
-       cv::imshow("view", cv_bridge::toCvShare(msg, "mono8")->image);
-       cv::waitKey(30);
-       image= cv_bridge::toCvShare(msg, "mono8")->image;
-     }
-     catch (cv_bridge::Exception& e)
-     {
-       ROS_ERROR("Could not convert from '%s' to 'bgr8'.", msg->encoding.c_str());
-     }
-     //find the contour and find the bounding box
-    findContours( image, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
-    vector<Rect> boundRect( contours.size() );
-    for( uint i = 0; i < contours.size(); i++ )
-       boundRect[i] = boundingRect( Mat(contours[i]) );
+  else
+        cout<<"File not found: "<<globalPath<<endl;
 
-    //rectangle( image, boundRect[0].tl(), boundRect[0].br(), color, 2, 8, 0 );
-   // imshow( "Boudingbox", image );
-    //enlarge your bounding box
-    Point offset= Point(30,30);
- 
+  myReadFile.close();
+  return Mat::cvt(output);
 
-    Rect bigBoundingBox= Rect( boundRect[0].tl()-offset,boundRect[0].br()+offset);
-    rectangle( image, bigBoundingBox.tl(), bigBoundingBox.br(), color, 2, 8, 0 );
-    anchorTarget=bigBoundingBox.tl();
-    //imshow( "BigBoudingbox", image );
-    //crop the image
-    cv::Mat croppedRef(image, bigBoundingBox);
-    cv::Mat cropped;
-    // Copy the data into new matrix
-    croppedRef.copyTo(cropped);
-    imshow( "Croped image", cropped );
+}
 
-    //cout<<"Cropped image size"<<cropped.size()<<endl;
 
-     target=cropped;
+public:  
+recognizer()
+{
+}  
 
-  }
-  void requestCallback(const std_msgs::String::ConstPtr& msg)
-  {
-    //ROS_INFO("imgInfoTopicCallback: [%s]", msg->data.c_str());
-    request=msg->data.c_str();
-    std::size_t found = request.find("getCategory");
-    if (found!=std::string::npos){
-      cout<<"Category request"<<endl;
-      detectCategory();
+~recognizer()
+ {
+ }
+
+
+
+void setpath(string newPath)
+{
+  path=newPath;
+}
+void loadData(){
+  cout<<"Loading: contourRef.txt"<<endl;
+  contourRef=textFile2Mat("contourRef.txt",120,5);
+
+  cout<<"Loading: contourData.txt"<<endl;
+  contourData=textFile2Mat("contourData.txt",120,91);
+
+  cout<<"Loading: dataGravityCenter.txt"<<endl;
+  dataGravityCenter=textFile2Mat("dataGravityCenter.txt",91,2);
+
+  cout<<"Loading: groundTruth.txt"<<endl;
+  groundTruth=textFile2Mat("groundTruth.txt",91,1);
+
+}
+void publishOnNodes(){
+  std_msgs::String msg;
+  //Category found with classification
+  msg.data = categoryFound;
+  category_pub.publish(msg);
+  //Grasping points adapted to classification
+  msg.data = outputGP;
+  graspingPoints_pub.publish(msg);
+  ros::spinOnce();
     }
-    found = request.find("getGraspingPoints"); 
-    if (found!=std::string::npos){
-      cout<<"Grasping points request"<<endl;
-      if(categoryFound=="")
-        detectCategory();
-      getGraspingPoints();      
-    }
-    publishOnNodes(); 
 
-  }
+void imageCallback(const sensor_msgs::ImageConstPtr& msg)
+{
+  Mat image;
+
+  //recceive image from topic
+  try
+   {
+     cv::imshow("view", cv_bridge::toCvShare(msg, "mono8")->image);
+     cv::waitKey(30);
+     image= cv_bridge::toCvShare(msg, "mono8")->image;
+   }
+   catch (cv_bridge::Exception& e)
+   {
+     ROS_ERROR("Could not convert from '%s' to 'bgr8'.", msg->encoding.c_str());
+   }
+
+  outputGP=getGraspingPoints(image);// result of the classification stored in categoryFound
+
+
+}
+
+
+Mat getTarget(){
+  return target;
+}
+
+
 
 };
 
 
 
-int main(int argc, char **argv)
-{
-  recognizer TshirtAnalyzer ;
+void kinectToHIRO( cv::Mat &inputPoint){
 
-  ros::init(argc, argv, "recognitionNode");
-  ros::NodeHandle nh;
-  cv::namedWindow("view");
-  cv::startWindowThread();
-  image_transport::ImageTransport it(nh);
-  image_transport::Subscriber sub = it.subscribe("kinect2_viewer/extratedContour", 1, &recognizer::imageCallback,&TshirtAnalyzer);
-  ros::Subscriber request_sub = nh.subscribe("request", 1000, &recognizer::requestCallback,&TshirtAnalyzer);
-  TshirtAnalyzer.category_pub = nh.advertise<std_msgs::String>("category", 100);
-  TshirtAnalyzer.graspingPoints_pub = nh.advertise<std_msgs::String>("graspingPoints", 100);
 
-  //TshirtAnalyzer.loadReference();
+//Tranformation of pixel coordinatesa to 3D x-, y-coordinates in 3D Kinect coordinate system
+double z=inputPoint.at<double>(1,1);  // Taken from depth sensor
+inputPoint.at<double>(-1,1) = ( (-z/au) *(inputPoint.at<double>(-1,1)- u0) );
+inputPoint.at<double>(0,1) = ( (-z/av)*(inputPoint.at<double>(0,1) - v0) );
 
-  ros::spin();
-  cv::destroyWindow("view");
+
+
+inputPoint=conversion*inputPoint; // conversion from mm to meters;
+
+
+  //Tranformation from Kinect Coordinate System to HIRo Coordinate system
+
+// cv::Mat kinectToHIRO =(Mat_<double>(4,4) <<             -0.0830,   -0.9965,   -0.0109,    0.4416,
+//                             -0.9965,    0.0829,    0.0070,    0.1177,
+//                             -0.0061,    0.0114,   -0.9999,    0.9961,
+//                                   0,         0,         0,    1.0000);
+
+cv::Mat kinectToHIRO =(Mat_<double>(4,4) << -0.0830,   -0.9965,   -0.0109,    0.5016,
+                      -0.9965,    0.0829,    0.0070,    0.0677,
+                      -0.0061,    0.0114,   -0.9999,    0.9461,
+                           0,         0,         0,    1.0000);
+
+inputPoint = kinectToHIRO * inputPoint;
 
   
+}
 
-  //TshirtAnalyzer.loadReference();
+
+
+int main(int argc, char **argv)
+{
+recognizer TshirtAnalyzer ;
+
+ros::init(argc, argv, "recognitionNode");
+ros::NodeHandle nh;
+cv::namedWindow("view");
+cv::startWindowThread();
+image_transport::ImageTransport it(nh);
+image_transport::Subscriber sub = it.subscribe("kinect2_viewer/extratedContour", 1, &recognizer::imageCallback,&TshirtAnalyzer);
+TshirtAnalyzer.category_pub = nh.advertise<std_msgs::String>("category", 100);
+TshirtAnalyzer.graspingPoints_pub = nh.advertise<std_msgs::String>("graspingPoints", 100);
+
+
+//int fileindex=76;
+string filename;
+
+TshirtAnalyzer.loadData();
+
+
+while(1)
+{
+//Image acquisition pressing a key
+// if(waitKey(100)!=-1){
+//    filename="edge"+to_string(fileindex)+".png";
+//    imwrite(filename, TshirtAnalyzer.getTarget());
+//    fileindex++;
+//    cout<<"Saved as:  "<<filename<<endl;
+//   }
+ros::spinOnce();
+}
+
+
+cv::destroyWindow("view");
+
+
+
+//TshirtAnalyzer.loadReference();
 
 waitKey();
 
-  return 0;
+return 0;
 }
