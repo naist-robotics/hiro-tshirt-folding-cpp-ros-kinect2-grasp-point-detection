@@ -14,13 +14,21 @@
 #include "ros/ros.h"
 #include "std_msgs/String.h"
 
+#define au 523.5  // pixels 
+#define av 523.8
+#define u0 472.75 // Optical centre u coordinate
+#define v0 276      // Optical center v coordinate
+
 using namespace std;
 using namespace cv;
 
 string path="/home/robotics/catkin_ws/src/iai_kinect2/kinect2_viewer/src/";
 string refFolder="Reference/";
 
-
+cv::Mat conversion=(Mat_<double>(4,4) <<  0.001, 0, 0, 0, 
+                    0, 0.001, 0, 0, 
+                    0, 0, 0.001, 0,
+                    0, 0, 0, 1); // conversion from mm to meters
 class recognizer
 {
 // attributs
@@ -31,7 +39,7 @@ ros::Publisher graspingPoints_pub;
 ros::Publisher sidePoints_pub;
 private:
 // informations about the references
-Mat contourRef,contourData,dataGravityCentergroundTruth;
+Mat contourRef,contourData,dataGravityCenter, groundTruth,depth;
 
 
 // Target
@@ -44,11 +52,40 @@ vector<Mat> GraspingP;
 //methods
 
 private:
-int polarContourClassification(Mat dataSet, Mat groundTruth, Mat inputPolarC)
+void kinectToHIRO( cv::Mat &inputPoint){
+
+
+  //Tranformation of pixel coordinatesa to 3D x-, y-coordinates in 3D Kinect coordinate system
+  double z=inputPoint.at<double>(1,1);  // Taken from depth sensor
+  inputPoint.at<double>(-1,1) = ( (-z/au) *(inputPoint.at<double>(-1,1)- u0) );
+  inputPoint.at<double>(0,1) = ( (-z/av)*(inputPoint.at<double>(0,1) - v0) );
+
+
+
+  inputPoint=conversion*inputPoint; // conversion from mm to meters;
+
+
+  //Tranformation from Kinect Coordinate System to HIRo Coordinate system
+
+  // cv::Mat kinectToHIRO =(Mat_<double>(4,4) <<             -0.0830,   -0.9965,   -0.0109,    0.4416,
+  //                             -0.9965,    0.0829,    0.0070,    0.1177,
+  //                             -0.0061,    0.0114,   -0.9999,    0.9961,
+  //                                   0,         0,         0,    1.0000);
+
+  cv::Mat kinectToHIRO =(Mat_<double>(4,4) << -0.0830,   -0.9965,   -0.0109,    0.5016,
+                  -0.9965,    0.0829,    0.0070,    0.0677,
+                  -0.0061,    0.0114,   -0.9999,    0.9461,
+                       0,         0,         0,    1.0000);
+
+  inputPoint = kinectToHIRO * inputPoint;
+
+
+}
+int polarContourClassification(Mat polarContourSet, Mat groundTruth, Mat inputPolarC)
 {
   return 0;
 }
-int gravityCenterClassification( Mat learningSet, Mat groundTruth, Mat inputPolar, int neighbourNum )
+int gravityCenterClassification( Mat gravityCenterSet, Mat groundTruth, Mat inputGc, int neighbourNum )
 {
     return 0;
 }
@@ -56,7 +93,7 @@ void getImgInfos( Mat inputImg, Mat &gravityCenter, Mat &polarContour )
 {
 
 }
-string classification(Mat image, Rect boundingBox){
+int classification(Mat image, Rect boundingBox){
   Scalar color=cv::Scalar(255,0,0);
   //enlarge your bounding box
   Point offset= Point(30,30);
@@ -83,34 +120,35 @@ string classification(Mat image, Rect boundingBox){
 
   imshow( "Croped image", cropped );
 
-
-  if(gravityCenterClassification( learningSet, groundTruth, inputPolar, neighbourNum )<4)
+  Mat gravityCenter,polarContour;
+  getImgInfos(image,gravityCenter,polarContour);
+  if(gravityCenterClassification( dataGravityCenter, groundTruth, gravityCenter, 5 )<4)
   {
-    switch(polarContourClassification( learningSet, groundTruth, inputPolar, neighbourNum ))
+    switch(polarContourClassification( contourData, groundTruth, polarContour ))
     {
-      case 1: return"A";
+      case 1: categoryFound="A";
+              return 1;
               break;
-      case 2: return "B";
+      case 2: categoryFound="B";
+              return 2;
               break;
-      case 3: return "C";
+      case 3: categoryFound="C";  
+              return 3;
               break;
-      default: return "none";
+      default:categoryFound="none"; 
+              return 4;
     }
   }
   else
     cout<<"classification out of bounds"<<endl;
 
-  return "0";
+  return 0;
 }
 
 string getGraspingPoints(Mat image){
   vector<vector<Point> > contours;
   vector<Vec4i> hierarchy;
-  string message;
-  RNG rng(12345);
-  Scalar color = Scalar( rng.uniform(0, 255), rng.uniform(0,255), rng.uniform(0,255) );
-
-
+  Mat leftArmGp,rightArmGp;
   //find the contour and find the bounding box
   findContours( image.clone(), contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
   vector<Rect> boundRect( contours.size() );
@@ -119,18 +157,18 @@ string getGraspingPoints(Mat image){
 
   //rectangle( image, boundRect[0].tl(), boundRect[0].br(), color, 2, 8, 0 );
   //imshow( "Boudingbox", image );
-  Point tl=boundingBox[0].tl();
-  Point br=boundingBox[0].br();
+  Point tl=boundRect[0].tl();
+  Point br=boundRect[0].br();
   Point Gp1,Gp2;
   switch(classification(image,boundRect[0]))
   {
-      case "A": // grasp the bottom and leftmost point
+      case 1: // A: grasp the bottom and leftmost point
                 Gp1=tl;
                 Gp2=Point(br.x,0);
                 while (image.at<uint8_t>(Gp2)<=0)
                       Gp2.y++;
               break;
-      case "B": //grasp shoulders approx :GP1 on x=tl.x+(br.x-tl.x)/4   GP2 on x=br.x-(br.x-tl.x)/4
+      case 2: //B: grasp shoulders approx :GP1 on x=tl.x+(br.x-tl.x)/4   GP2 on x=br.x-(br.x-tl.x)/4
                 Gp1=Point(tl.x+(br.x-tl.x)/4,0);
                 Gp2=Point(br.x-(br.x-tl.x)/4,0);
                 while (image.at<uint8_t>(Gp1)<=0)
@@ -138,20 +176,39 @@ string getGraspingPoints(Mat image){
                 while (image.at<uint8_t>(Gp2)<=0)
                       Gp2.y++;
               break;
-      case "C":// grasp bottom and rightmost point 
+      case 3:// C: grasp bottom and rightmost point 
                 Gp1=Point(br.x,0); 
                 while (image.at<uint8_t>(Gp2)<=0)
                       Gp1.y++;
-                Gp2=Point(tl.x,br.y)
+                Gp2=Point(tl.x,br.y);
               break;
-      default:       
+      default: // two points at the center of the bounding box
+                Gp1=Point((tl.x+br.x)/2,(tl.y+br.y)/2);
+                Gp2=Point((tl.x+br.x)/2,(tl.y+br.y)/2);            
   }
 
   //circle grasping points
   cv::circle(image, Gp1, 10, cv::Scalar(255,0,0), 2, 4);
   cv::circle(image, Gp2, 10, cv::Scalar(255,0,0), 2, 4);
 
-  sprintf(message,"%s %s %s","graspingPoints",Gp1,Gp2);
+  rightArmGp.at<double>(-1,1)=Gp1.x;
+  rightArmGp.at<double>(0,1)=Gp1.y;
+  rightArmGp.at<double>(1,1)=depth.at<short>(rightArmGp.at<double>(0,1),rightArmGp.at<double>(-1,1));
+
+  leftArmGp.at<double>(-1,1)=Gp2.x;
+  leftArmGp.at<double>(0,1)=Gp2.y;
+  leftArmGp.at<double>(1,1)=depth.at<short>(leftArmGp.at<double>(0,1),leftArmGp.at<double>(-1,1));
+
+  kinectToHIRO(rightArmGp);
+  kinectToHIRO(leftArmGp);
+
+ return "graspingPoints " +to_string(rightArmGp.at<double>(-1,1))+" "
+                          +to_string(rightArmGp.at<double>(0,1))+" "
+                          +to_string(rightArmGp.at<double>(1,1))+" "
+                          +to_string(leftArmGp.at<double>(-1,1))+" "
+                          +to_string(leftArmGp.at<double>(0,1))+" "
+                          +to_string(leftArmGp.at<double>(1,1));
+  
 }  
 
 Mat textFile2Mat(String filename, int rowNum, int colNum)
@@ -160,7 +217,7 @@ Mat textFile2Mat(String filename, int rowNum, int colNum)
   string delimiter = ",";
   int rows=0;
   int cols=0;
-  vector<vector<float> > output;//=Mat::zeros(rowNum,colNum,CV_32F);
+  Mat output=Mat::zeros(rowNum,colNum,CV_32F);
 
  ifstream myReadFile;
  sprintf(globalPath,"%s%s%s",path.c_str(),refFolder.c_str(),filename.c_str());
@@ -193,7 +250,7 @@ Mat textFile2Mat(String filename, int rowNum, int colNum)
         cout<<"File not found: "<<globalPath<<endl;
 
   myReadFile.close();
-  return Mat::cvt(output);
+  return output;
 
 }
 
@@ -270,35 +327,7 @@ Mat getTarget(){
 
 
 
-void kinectToHIRO( cv::Mat &inputPoint){
 
-
-//Tranformation of pixel coordinatesa to 3D x-, y-coordinates in 3D Kinect coordinate system
-double z=inputPoint.at<double>(1,1);  // Taken from depth sensor
-inputPoint.at<double>(-1,1) = ( (-z/au) *(inputPoint.at<double>(-1,1)- u0) );
-inputPoint.at<double>(0,1) = ( (-z/av)*(inputPoint.at<double>(0,1) - v0) );
-
-
-
-inputPoint=conversion*inputPoint; // conversion from mm to meters;
-
-
-  //Tranformation from Kinect Coordinate System to HIRo Coordinate system
-
-// cv::Mat kinectToHIRO =(Mat_<double>(4,4) <<             -0.0830,   -0.9965,   -0.0109,    0.4416,
-//                             -0.9965,    0.0829,    0.0070,    0.1177,
-//                             -0.0061,    0.0114,   -0.9999,    0.9961,
-//                                   0,         0,         0,    1.0000);
-
-cv::Mat kinectToHIRO =(Mat_<double>(4,4) << -0.0830,   -0.9965,   -0.0109,    0.5016,
-                      -0.9965,    0.0829,    0.0070,    0.0677,
-                      -0.0061,    0.0114,   -0.9999,    0.9461,
-                           0,         0,         0,    1.0000);
-
-inputPoint = kinectToHIRO * inputPoint;
-
-  
-}
 
 
 
