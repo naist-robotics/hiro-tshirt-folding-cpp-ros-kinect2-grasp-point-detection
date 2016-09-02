@@ -299,12 +299,9 @@ void imageViewer()
     std::ostringstream oss;
     const cv::Point pos(5, 15);
     const cv::Scalar colorText = CV_RGB(255, 255, 255);
-    const double sizeText = 0.5;
-    const int lineText = 1;
-    const int font = cv::FONT_HERSHEY_SIMPLEX;
     const int SIZE_DEPTH_QUEUE = 3;
-    float depthMax = 900.0f, depthMin = 800.0f;
-    int Lthresh=817,Hthresh=873,thresh1=25,thresh2=30;
+    int Lthresh=800,Hthresh=890,thresh1=25,thresh2=30;
+    int canny1 = 100, canny2 = 20;
     Point topLeftPoint=Point(150,135);
     Point bottomRightPoint=Point(740,450);
     string shapeCategory;
@@ -321,11 +318,16 @@ void imageViewer()
     // cout<<"rightArmGp:["<<rightArmGp.at<double>(3,1)<<std::endl;			
 
 
+    //Creation of the trackbars's window
     cv::namedWindow("Control");
-   	cvCreateTrackbar("Lthresh", "Control", &Lthresh, 1200); //Hue (0 - 179)
-		cvCreateTrackbar("Hthresh", "Control", &Hthresh, 1200);
-		cvCreateTrackbar("thresh1", "Control", &thresh1, 1200); //Hue (0 - 179)
-		cvCreateTrackbar("thresh2", "Control", &thresh2, 1200); //Hue (0 - 179)
+   	cvCreateTrackbar("Lthresh", "Control", &Lthresh, 1200);
+	cvCreateTrackbar("Hthresh", "Control", &Hthresh, 1200);
+	cvCreateTrackbar("thresh1", "Control", &thresh1, 1200); 
+	cvCreateTrackbar("thresh2", "Control", &thresh2, 1200);
+	cvCreateTrackbar("cannyparam1", "Control", &canny1, 200);
+	cvCreateTrackbar("cannyparam2", "Control", &canny2, 100);
+
+	//Running loop 
     oss << "starting...";
 
     start = std::chrono::high_resolution_clock::now();
@@ -371,32 +373,35 @@ void imageViewer()
           frameCount = 0;
         }
 
-		cv::Mat depth_8, depth_canny, can1, can2, can3, can4;
+		cv::Mat depth_8, depth_canny;
 		depth_8 = cv::Mat::zeros(Size(depth.cols,depth.rows), CV_8U);
-		convert16Uto8U(depth, depth_8);
-		//depth.convertTo(depth_8, CV_8U, 0.3);
-		cv::Canny(depth_8, depth_canny, 100,20);
-		/*cv::Canny(depth_8, can1, 100, 20);
-		cv::Canny(depth_8, can2, 100, 30);
-		cv::Canny(depth_8, can3, 100, 40);
-		cv::Canny(depth_8, can4, 100, 50);*/
+
 
 		cout<<"######################Begining of image processing #######################################"<<endl;
+		//
+		convert16Uto8U(depth, depth_8,Lthresh,Hthresh);
+		cv::Canny(depth_8, depth_canny, canny1,canny2);
 
- 		//imshow( "color image", color );
 
-		//image's points of interest
+		//Compute desk's height
 		deskHeight.at<double>(1,1)=getDesktopHeight(depth,topLeftPoint,bottomRightPoint);
 		kinectToHIRO(deskHeight);cout<<"Desktop height="<<deskHeight.at<double>(1,1)<<endl;
+		//Display the 4 points used to compute the Desktop height
+		// cv::circle(depth_canny, cv::Point(topLeftPoint.x,topLeftPoint.y), 10, cv::Scalar(255,0,0), 2, 4);
+		// cv::circle(depth_canny, cv::Point(bottomRightPoint.x,topLeftPoint.y), 10, cv::Scalar(255,0,0), 2, 4);
+		// cv::circle(depth_canny, cv::Point(bottomRightPoint.x,bottomRightPoint.y), 10, cv::Scalar(255,0,0), 2, 4);
+		// cv::circle(depth_canny, cv::Point(topLeftPoint.x,bottomRightPoint.y), 10, cv::Scalar(255,0,0), 2, 4);
 
+		// Detect if cloth on desktop and return the contour of the cloth
 		cloth=Mat::zeros(depth.rows,depth.cols,CV_8U);
-		int ClothOnDesktop=clothShapeDetection(depth,depth_8,cloth,thresh1,thresh2);
+		int ClothOnDesktop=clothShapeDetection(depth,cloth,thresh1,thresh2,Hthresh,Lthresh);
 		//imshow( "Cloth shape", cloth );
 
-
+		//Compute the side points
 		getSidePoints(depth,depth_canny,rightArmGp,leftArmGp); // (find rightmost and leftmost points (within hard-coded limits) in input matrix)
 
 
+		// Display side points in the Kinect and Hiro Coordinate system
 		cout<<"IMAGE COORDINATES=========================="<<endl;
 		cout<<"rightArm"<<endl<<rightArmGp<<endl;
 		cout<<"leftArm"<<endl<<leftArmGp<<endl;
@@ -408,59 +413,33 @@ void imageViewer()
 		cout<<"rightArmGpHIRO"<<endl<<rightArmGp<<endl;
 		cout<<"leftArmGpHIRO"<<endl<<leftArmGp<<endl;	
 
-
-
-		cout<<"######################End of image processing ############################################"<<endl;
-
-		//Display the 4 points used to compute the Desktop height
-		cv::circle(depth_canny, cv::Point(topLeftPoint.x,topLeftPoint.y), 10, cv::Scalar(255,0,0), 2, 4);
-		cv::circle(depth_canny, cv::Point(bottomRightPoint.x,topLeftPoint.y), 10, cv::Scalar(255,0,0), 2, 4);
-		cv::circle(depth_canny, cv::Point(bottomRightPoint.x,bottomRightPoint.y), 10, cv::Scalar(255,0,0), 2, 4);
-		cv::circle(depth_canny, cv::Point(topLeftPoint.x,bottomRightPoint.y), 10, cv::Scalar(255,0,0), 2, 4);
-
-
-		dispDepth(depth, depthDisp, depthMax, depthMin);
-		//depthMaxCut(depth, depthDisp, depthMax, depthMin);
-	    combine(color, depthDisp, combined);
-	    //combined = color;
-
-	    cv::putText(combined, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
-	    //cv::imshow("Image Viewer", combined);
-
-		//cout << "depth.rows:" << depth.rows << "   depth.cols" << depth.cols << endl;
-		line(depthDisp, Point(depthDisp.cols/2, 0), Point(depthDisp.cols/2, depthDisp.rows), Scalar(255,255,255), 1, 4);
-		line(depthDisp, Point(depthDisp.cols/2-155, 0), Point(depthDisp.cols/2-155, depthDisp.rows), Scalar(255,255,255), 1, 4);
-		line(depthDisp, Point(depthDisp.cols/2+155, 0), Point(depthDisp.cols/2+155, depthDisp.rows), Scalar(255,255,255), 1, 4);
-		line(depthDisp, Point(depthDisp.cols/2-200, 0), Point(depthDisp.cols/2-200, depthDisp.rows), Scalar(255,255,255), 1, 4);
-		line(depthDisp, Point(depthDisp.cols/2+200, 0), Point(depthDisp.cols/2+200, depthDisp.rows), Scalar(255,255,255), 1, 4);
-		//横は200で30cm相当
-		line(depthDisp, Point(0, depthDisp.rows/2), Point(depthDisp.cols, depthDisp.rows/2), Scalar(255,255,255), 1, 4);
-		line(depthDisp, Point(0, depthDisp.rows/2-100), Point(depthDisp.cols, depthDisp.rows/2-100), Scalar(255,255,255), 1, 4);
-		line(depthDisp, Point(0, depthDisp.rows/2-50), Point(depthDisp.cols, depthDisp.rows/2-50), Scalar(255,255,255), 1, 4);
-		//縦は100で15.3cm相当
-		//281:281
-		//エッジの端点を探す範囲
-		line(depthDisp, Point(150, 0), Point(150, depthDisp.rows), Scalar(155,155,155), 1, 4);
-		line(depthDisp, Point(810, 0), Point(810, depthDisp.rows), Scalar(155,155,155), 1, 4);
-		line(depthDisp, Point(0, 520), Point(depthDisp.cols, 520), Scalar(155,155,155), 1, 4);
-		line(depthDisp, Point(0, 100), Point(depthDisp.cols, 100), Scalar(155,155,155), 1, 4);
+		//Display images
 
 		//cv::imshow("detph_8", depth_8);
 		//cv::imshow("depth viewer", depthDisp);
-		//cv::imshow("canny edge", depth_canny);
-		//cv::imshow("can1", can1);
-		//cv::imshow("can2", can2);
-		//cv::imshow("can3", can3);
-		//cv::imshow("can4", can4);
+		cv::imshow("canny edge", depth_canny);
+		//cv::imshow( "color image", color );
 
-		// Image acquisition pressing a key
+		cout<<"######################End of image processing ############################################"<<endl;
+
+
+		// //Edge acquisition
 		// if(waitKey(100)!=-1){
 		// 	filename="edge"+to_string(fileindex)+".png";
 		// 	imwrite(filename, cloth);
 		// 	fileindex++;
 		// }
+
+		// //Color acquisition
+		// if(waitKey(100)!=-1){
+		// 	filename="color"+to_string(fileindex)+".png";
+		// 	imwrite(filename, color);
+		// 	fileindex++;
+		// }
 		
-		// build and publish message on imgInfoTopic
+
+		//==============ROS TRANSMISSION=======================================
+		//topic:IMGINFOTOPIC
 		ss<<" deskHeight "<<to_string(deskHeight.at<double>(1,1))<<" clothOnDesktop " <<to_string(ClothOnDesktop)<<" " ;
 		ss<< "sidePoints";
 		for (int i=0;i<rightArmGp.rows-1;i++) 
@@ -475,7 +454,7 @@ void imageViewer()
 		//cout<<"leftArmGpHIRO"<<endl<<leftArmGp<<endl;
 
 
-		// build and publish the contour image on imgInfoTopic
+		//topic:EXTRACTEDCONTOUR
 		sensor_msgs::ImagePtr imgMsg = cv_bridge::CvImage(std_msgs::Header(), "mono8", cloth).toImageMsg();
 		imgPublisher.publish(imgMsg);
 		ros::spinOnce();
@@ -537,19 +516,20 @@ float getDesktopHeight(Mat depth,Point topLeftPoint, Point bottomRightPoint){
 }
 
 
-int clothShapeDetection(Mat depth, Mat depth8U,Mat &finalShape,int cannyThresh1, int cannyThresh2){
+int clothShapeDetection(Mat depth,Mat &finalShape,int cannyThresh1, int cannyThresh2, int Hthresh, int Lthresh){
 	// Return 1 if a cloth is on the Desktop
 	// Return 0 otherwise 
 	
 	Mat desk,kernel,cannyTest,biggestContour,deskBorder=Mat::zeros(depth.rows,depth.cols,CV_8U);
+	Mat depth8U= cv::Mat::zeros(Size(depth.cols,depth.rows), CV_8U);;
 	vector<vector<Point> > contours,deskContours;
 		vector<Vec4i> hierarchy,hierarchyDesk;
 		int largestArea=0,largest_contour_idx=0;
 		Moments myMoments;
 
 
-		//Extract desk shape and it's contour
-	inRange(depth,810,923,desk);
+	//Extract desk shape and it's contour
+	inRange(depth,Lthresh,Hthresh,desk);
 	kernel=getStructuringElement(MORPH_RECT, Size(20,20));
 	morphologyEx(desk,desk,MORPH_ERODE,kernel);// reduce desktop bordernoise
 	findContours(desk, contours, hierarchy, CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
@@ -559,16 +539,17 @@ int clothShapeDetection(Mat depth, Mat depth8U,Mat &finalShape,int cannyThresh1,
 	// findContours(desk.clone(),deskContours, hierarchyDesk, CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
 	// for (uint i=0;i<deskContours.size();i++)
 	// 	drawContours(deskBorder,deskContours,i,255,1,8,hierarchyDesk);
-		//imshow("Desk",desk);
+		//imshow("Desk",desk); 
 
 
 	//Apply canny filter and target the desk's zone
+	convert16Uto8U(depth,depth8U,Lthresh,Hthresh);
 	cv::Canny(depth8U, cannyTest, cannyThresh1,cannyThresh2);
 		//imshow("cannyOutput",cannyTest);
 	cannyTest=(cannyTest&desk);//|deskBorder;
 	kernel=getStructuringElement(MORPH_ELLIPSE, Size(6,6));
 	morphologyEx(cannyTest,cannyTest,MORPH_DILATE,kernel);// to be sure that we will have a closed contour
-		//imshow("cannyFiltered",cannyTest);
+		imshow("cannyFiltered",cannyTest);
 
 
 	//Locate the biggest contour
@@ -599,7 +580,7 @@ int clothShapeDetection(Mat depth, Mat depth8U,Mat &finalShape,int cannyThresh1,
 	finalShape=Mat::zeros(cannyTest.rows,cannyTest.cols,CV_8U);
 	for (uint i=0;i<contours.size();i++)
 		drawContours(finalShape,contours,i ,255,2,8,hierarchy);;
-		//imshow("finalShape",finalShape);	
+		imshow("contour",finalShape);	
 
 
 	if (largestArea>5000)
@@ -828,7 +809,7 @@ cv::Mat  averagePictures(queue<cv::Mat> depthQueue)
 
     	return depthQueue.front();
 }
-void convert16Uto8U(const cv::Mat &in1, cv::Mat &out){//16Uのin1を8UのoutにMAXVALUEとMINVALUEに基づいて変換
+void convert16Uto8U(const cv::Mat &in1, cv::Mat &out, int depthmin, int depthmax){//16Uのin1を8UのoutにMAXVALUEとMINVALUEに基づいて変換
 
     for(int r = 0; r < in1.rows; r++)
     {
@@ -836,11 +817,11 @@ void convert16Uto8U(const cv::Mat &in1, cv::Mat &out){//16Uのin1を8UのoutにM
       uint8_t *itOut = out.ptr<uint8_t>(r);
       for(int c = 0; c < in1.cols; c++, it1In++, itOut++)
       {
-	         if(*it1In > DEPTHMAX)
+	         if(*it1In > depthmax)
            {
 	             *itOut = (uint8_t)255;
 	         }
-           else if(*it1In < DEPTHMIN)
+           else if(*it1In < depthmin)
            {
 	             *itOut = (uint8_t)0;
 	         }

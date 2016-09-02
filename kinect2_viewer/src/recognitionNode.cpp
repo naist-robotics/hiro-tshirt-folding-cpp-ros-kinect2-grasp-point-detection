@@ -82,12 +82,29 @@ void kinectToHIRO( cv::Mat &inputPoint){
 
 }
 int polarContourClassification(Mat polarContourSet, Mat groundTruth, Mat inputPolarC)
-{
-  return 0;
+{ 
+  // int sizeLearningSet=polarContourSet.cols;
+  // Mat error=Mat::zeros(sizeLearningSet,1,CV_32F);
+
+  // for (int i=0;i<polarContourSet.cols;i++)
+  // {
+  //   Mat sub=polarContourSet.col(i)-inputPolarC;
+  //   cout << polarContourSet.col(i) << endl;
+  //   cout << inputPolarC << endl;
+  //   cout << sub << endl;
+  //   Scalar sum=sum(sub);
+  //   error.at<float>(i,1)=sum[0];
+
+  // }
+  return 4;
+  // Mat sortedError;
+
+  // sortIdx(error, sortedError, CV_SORT_ASCENDING);
+  // return groundTruth.at<float>(sortedError.at<float>(0,0));
 }
 int gravityCenterClassification( Mat gravityCenterSet, Mat groundTruth, Mat inputGc, int neighbourNum )
 {
-    return 0;
+    return 4;
 }
 void getImgInfos( Mat inputImg, Mat &gravityCenter, Mat &polarContour )
 {
@@ -122,7 +139,7 @@ int classification(Mat image, Rect boundingBox){
 
   Mat gravityCenter,polarContour;
   getImgInfos(image,gravityCenter,polarContour);
-  if(gravityCenterClassification( dataGravityCenter, groundTruth, gravityCenter, 5 )<4)
+  if(gravityCenterClassification( dataGravityCenter, groundTruth, gravityCenter, 5 )<=4)
   {
     switch(polarContourClassification( contourData, groundTruth, polarContour ))
     {
@@ -163,12 +180,14 @@ string getGraspingPoints(Mat image){
   switch(classification(image,boundRect[0]))
   {
       case 1: // A: grasp the bottom and leftmost point
+                cout<<"Classification: A"<<endl;
                 Gp1=tl;
                 Gp2=Point(br.x,0);
                 while (image.at<uint8_t>(Gp2)<=0)
                       Gp2.y++;
               break;
       case 2: //B: grasp shoulders approx :GP1 on x=tl.x+(br.x-tl.x)/4   GP2 on x=br.x-(br.x-tl.x)/4
+                cout<<"Classification: B"<<endl;
                 Gp1=Point(tl.x+(br.x-tl.x)/4,0);
                 Gp2=Point(br.x-(br.x-tl.x)/4,0);
                 while (image.at<uint8_t>(Gp1)<=0)
@@ -177,38 +196,40 @@ string getGraspingPoints(Mat image){
                       Gp2.y++;
               break;
       case 3:// C: grasp bottom and rightmost point 
+                cout<<"Classification: C"<<endl;
                 Gp1=Point(br.x,0); 
                 while (image.at<uint8_t>(Gp2)<=0)
                       Gp1.y++;
                 Gp2=Point(tl.x,br.y);
               break;
       default: // two points at the center of the bounding box
+                cout<<"Classification: none"<<endl;
                 Gp1=Point((tl.x+br.x)/2,(tl.y+br.y)/2);
                 Gp2=Point((tl.x+br.x)/2,(tl.y+br.y)/2);            
   }
 
   //circle grasping points
-  cv::circle(image, Gp1, 10, cv::Scalar(255,0,0), 2, 4);
-  cv::circle(image, Gp2, 10, cv::Scalar(255,0,0), 2, 4);
+   cv::circle(image, Gp1, 10, cv::Scalar(255,0,0), 2, 4);
+   cv::circle(image, Gp2, 10, cv::Scalar(255,0,0), 2, 4);
 
-  rightArmGp.at<double>(-1,1)=Gp1.x;
-  rightArmGp.at<double>(0,1)=Gp1.y;
-  rightArmGp.at<double>(1,1)=depth.at<short>(rightArmGp.at<double>(0,1),rightArmGp.at<double>(-1,1));
+ //  rightArmGp.at<double>(-1,1)=Gp1.x;
+ //  rightArmGp.at<double>(0,1)=Gp1.y;
+ //  rightArmGp.at<double>(1,1)=depth.at<short>(rightArmGp.at<double>(0,1),rightArmGp.at<double>(-1,1));
 
-  leftArmGp.at<double>(-1,1)=Gp2.x;
-  leftArmGp.at<double>(0,1)=Gp2.y;
-  leftArmGp.at<double>(1,1)=depth.at<short>(leftArmGp.at<double>(0,1),leftArmGp.at<double>(-1,1));
+ //  leftArmGp.at<double>(-1,1)=Gp2.x;
+ //  leftArmGp.at<double>(0,1)=Gp2.y;
+ //  leftArmGp.at<double>(1,1)=depth.at<short>(leftArmGp.at<double>(0,1),leftArmGp.at<double>(-1,1));
 
-  kinectToHIRO(rightArmGp);
-  kinectToHIRO(leftArmGp);
+ //  kinectToHIRO(rightArmGp);
+ //  kinectToHIRO(leftArmGp);
 
- return "graspingPoints " +to_string(rightArmGp.at<double>(-1,1))+" "
-                          +to_string(rightArmGp.at<double>(0,1))+" "
-                          +to_string(rightArmGp.at<double>(1,1))+" "
-                          +to_string(leftArmGp.at<double>(-1,1))+" "
-                          +to_string(leftArmGp.at<double>(0,1))+" "
-                          +to_string(leftArmGp.at<double>(1,1));
-  
+ // return "graspingPoints " +to_string(rightArmGp.at<double>(-1,1))+" "
+ //                          +to_string(rightArmGp.at<double>(0,1))+" "
+ //                          +to_string(rightArmGp.at<double>(1,1))+" "
+ //                          +to_string(leftArmGp.at<double>(-1,1))+" "
+ //                          +to_string(leftArmGp.at<double>(0,1))+" "
+ //                          +to_string(leftArmGp.at<double>(1,1));
+  return "graspingPoints ";
 }  
 
 Mat textFile2Mat(String filename, int rowNum, int colNum)
